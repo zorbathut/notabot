@@ -46,11 +46,20 @@ def adequatePermission(needed, have):
     levels, revlevels = getPermissionDict()
     print "got", have, "needed", needed, "result", revlevels[needed] <= revlevels[have]
     return revlevels[needed] <= revlevels[have]
+    
+def getNickPermissions(nick):
+    global db
+    c=db.cursor()
+    c, rv = safeExecute(c, 'SELECT permlev FROM users WHERE username = %s', (nick,))
+    if rv == 0:
+        return "USER"
+    else:
+        return c.fetchone()[0]
 
 def getPermissions(user, nick, channel):
     global db
     c=db.cursor()
-    c, rv = safeExecute(c, 'SELECT max(permlev) FROM perms WHERE %s LIKE hostmask', (user,))
+    c, rv = safeExecute(c, 'SELECT max(users.permlev) FROM users, masks WHERE users.username = masks.username AND %s LIKE masks.mask', (user,))
     cp = c.fetchone()[0]
     if cp == None:
         cp = "USER"
@@ -58,6 +67,15 @@ def getPermissions(user, nick, channel):
     if channel.is_oper(nick):
         cp = greaterPermission(cp, 'AUTHORIZE')
     return cp
+
+def match(user):
+    global db
+    c=db.cursor()
+    c, rv = safeExecute(c, 'SELECT username FROM masks WHERE %s LIKE masks.mask', (user,))
+    if rv == 0:
+        return ""
+    else:
+        return c.fetchone()[0]
 
 def getEntry(entry):
     global db
@@ -145,6 +163,96 @@ def apropos(data, name, value):
             break
         output.append(tv[0])
     return output
+    
+def globToLike(dat):
+    return dat.replace("\\","\\\\").replace("%","\%").replace("_","\_").replace("*","%").replace("?","_")
+    
+def showhost(nick):
+    global db
+    c=db.cursor()
+    c, rv = safeExecute(c, 'SELECT origmask FROM masks WHERE username = %s ORDER BY mask', (nick,))
+    if rv == 0:
+        return []
+    output = [];
+    while 1:
+        tv = c.fetchone();
+        if tv == None:
+            break
+        output.append(tv[0])
+    return output
+    
+def rmhost(user, mask, source):
+    global db
+    c=db.cursor()
+    c, nrv = safeExecute(c, 'INSERT INTO userver ( modifier, command, target, data, time ) VALUES ( %s, %s, %s, %s, NOW() )', (source, "rmhost", user, mask))
+    if nrv == 0:
+        raise Error, "Validation failed!"
+    c, rv = safeExecute(c, 'DELETE FROM masks WHERE username = %s AND mask = %s', (user, globToLike(mask)))
+    if rv == 0:
+        return 0
+    else:
+        return 1
+        
+def addhost(user, mask, source):
+    global db
+    c=db.cursor()
+    c, rv = safeExecute(c, 'SELECT username FROM masks WHERE username = %s AND mask = %s', (user, globToLike(mask)))
+    if rv == 1:
+        return 0
+    c, nrv = safeExecute(c, 'INSERT INTO userver ( modifier, command, target, data, time ) VALUES ( %s, %s, %s, %s, NOW() )', (source, "addhost", user, mask))
+    if nrv == 0:
+        raise Error, "Validation failed!"
+    c, rv = safeExecute(c, 'INSERT INTO masks ( username, mask, origmask ) VALUES ( %s, %s, %s )', (user, globToLike(mask), mask))
+    if rv == 0:
+        return 0
+    else:
+        return 1
+
+def chperm(user, newperm, source):
+    levels, revlevels = getPermissionDict()
+    newperm = newperm.upper()
+    if not newperm in revlevels:
+        return 0
+    c=db.cursor()
+    c, nrv = safeExecute(c, 'INSERT INTO userver ( modifier, command, target, data, time ) VALUES ( %s, %s, %s, %s, NOW() )', (source, "chperm", user, newperm))
+    if nrv == 0:
+        raise Error, "Validation failed!"
+    c, rv = safeExecute(c, 'UPDATE users SET permlev = %s WHERE username = %s', (newperm, user))
+    if rv == 0:
+        c, rv = safeExecute(c, 'SELECT username FROM users WHERE permlev = %s AND username = %s', (newperm, user))
+        if rv == 1:
+            return 1
+        c, rv = safeExecute(c, 'INSERT INTO users ( permlev, username ) VALUES ( %s, %s )', (newperm, user))
+        if rv == 0:
+            return 0
+        else:
+            return 1
+    else:
+        return 1
+
+    
+    """
+           elif cmd == "rmhost":
+            if len(data) != 2:
+                self.queueMessage(('privmsg', source), 'Usage: rmhost user mask')
+                return
+            rmhost(data[0], data[1], e.source())
+        elif cmd == "addhost":
+            if len(data) != 2:
+                self.queueMessage(('privmsg', source), 'Usage: addhost user mask')
+                return
+            addhost(data[0], data[1], e.source())
+        elif cmd == "chperm":
+            if len(data) != 2:
+                self.queueMessage(('privmsg', source), 'Usage: chperm user [IGNORE|USER|PUBLIC|CHANGE|AUTHORIZE|GOD]')
+                return
+            chperm(data[0], data[1], e.source())"""
+
+def toki(instring):
+    out = [instring]
+    while ' ' in out[len(out) - 1]:
+        out[len(out)-1:] = out[len(out) - 1].strip().split(' ', 1)
+    return out
 
 class TestBot(SingleServerIRCBot):
     def __init__(self, channel, nickname, server, port=6667):
@@ -159,6 +267,7 @@ class TestBot(SingleServerIRCBot):
         self.lasttargeted = {}
         self.curtargets = {}
         self.timerRunning = 0
+        self.compositeBuffer = {}
         
     def updateLastsaid(self):
         print self.lastsaid
@@ -173,11 +282,12 @@ class TestBot(SingleServerIRCBot):
             self.curtargets[target] = []
         if not self.lasttargeted.has_key(target):
             self.lasttargeted[target] = 0
-        for time, value in self.lastsaid:
-            if value == (target, data):
-                if len(self.curtargets[target]) == 0:
-                    del self.curtargets[target]
-                return
+        if cull:
+            for time, value in self.lastsaid:
+                if value == (target, data):
+                    if len(self.curtargets[target]) == 0:
+                        del self.curtargets[target]
+                    return
         #print self.lastsaid
         #print self.curtargets
         #print self.timerRunning
@@ -265,6 +375,31 @@ class TestBot(SingleServerIRCBot):
         time.sleep(30)
         print "Retrying"
         c.join(self.channel, self.channelkey)
+        
+    def queueCompositeMessage(self, nick, values, prefix = "found:"):
+        if nick in self.compositeBuffer:
+            del self.compositeBuffer[nick]
+        self.compositeBuffer[nick] = []
+        if len(values) == 0:
+            self.compositeBuffer[nick].append(prefix + "no matches")
+        while len(values):
+            output = prefix
+            while len(output) < 300 and len(values):
+                output = output + ('"%s" ' % values[0])
+                values = values[1:]
+            if len(values):
+                output = output + "..."
+            self.compositeBuffer[nick].append(output)
+        #print self.compositeBuffer[nick]
+    
+    def queueCompositeMore(self, nick, target):
+        if nick in self.compositeBuffer:
+            self.queueMessage(target, self.compositeBuffer[nick][0])
+            self.compositeBuffer[nick] = self.compositeBuffer[nick][1:]
+            if len(self.compositeBuffer[nick]) == 0:
+                del self.compositeBuffer[nick]
+        else:
+            self.queueMessage(target, "Nothing left to display.")
 
     def do_command(self, e):
         #print e.eventtype()
@@ -285,14 +420,14 @@ class TestBot(SingleServerIRCBot):
         
         confused = 0
         
-        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "help":
+        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "help" or cmd == "more":
             if e.eventtype() == "pubmsg":
                 target = e.target()
                 source = e.target()
             else:
                 target = nick
                 source = nick
-        elif cmd == "tell":
+        elif cmd == "tell_calc":
             if len(instr) == 1 or instr[1] == "":
                 confused = 1
                 entry = ""
@@ -314,6 +449,11 @@ class TestBot(SingleServerIRCBot):
                     target = tellparse[0]
                     source = nick
                     entry = tellparse[2]
+        elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm":
+            if e.eventtype() == "pubmsg":
+                return
+            target = nick
+            source = nick
         else:
             return
 
@@ -324,7 +464,7 @@ class TestBot(SingleServerIRCBot):
             else:
                 entry = instr[1]
             data = ""
-        elif cmd == "tell":
+        elif cmd == "tell_calc":
             pass
         elif cmd == "mkcalc" or cmd == "chcalc":
             if len(instr) == 1 or instr[1] == "":
@@ -342,9 +482,16 @@ class TestBot(SingleServerIRCBot):
                     dat[1] = dat[1].strip()
                     entry = dat[0]
                     data = dat[1]
-        elif cmd == "help":
+        elif cmd == "help" or cmd == "more":
             entry = ""
             data = ""
+        elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm":
+            if len(instr) == 1:
+                data = []
+            else:
+                data = toki(instr[1])
+            entry = ""
+            print data
         else:
             raise Error, "Shouldn't get here."
             
@@ -377,7 +524,7 @@ class TestBot(SingleServerIRCBot):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op yourself or stop trying.")
             return
             
-        if cmd == "tell" and not adequatePermission('PUBLIC', permlev):
+        if cmd == "tell_calc" and not adequatePermission('PUBLIC', permlev):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op/voice yourself or stop trying.")
             return
             
@@ -385,16 +532,19 @@ class TestBot(SingleServerIRCBot):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")
             return
             
-        if cmd == "calc" or cmd == "tell":
+        if (cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm") and not adequatePermission('GOD', permlev):
+            return
+            
+        if cmd == "calc" or cmd == "tell_calc":
             data = getEntry(entry)
             """ this whole section should be a lot better """
             if data == "":
-                if cmd == "tell":
+                if cmd == "tell_calc":
                     self.queueMessage(('notice', source), "no entry for " + entry, True)
                 else:
                     self.queueMessage(('privmsg', source), "no entry for " + entry, True)
             else:
-                if cmd == "tell":
+                if cmd == "tell_calc":
                     self.queueMessage(('privmsg', target), nick + " wanted me to tell you:", True)
                     self.queueMessage(('notice', source), 'sent calc for "%s" to %s' % (entry, target), True)
                 self.queueMessage(('privmsg', target), entry + " = " + data, True)
@@ -425,18 +575,13 @@ class TestBot(SingleServerIRCBot):
             else:
                 raise Error, "Fucked!"
             returnval = apropos(entry, ki, val)
-            output = "found: "
-            if returnval == "":
-                output = output + "no matches"
-            else:
-                for ite in returnval:
-                    output = output + ( '"%s" ' % ite )
-            self.queueMessage(('privmsg', target), output, True)
+            self.queueCompositeMessage(nick, returnval)
+            self.queueCompositeMore(nick, ('privmsg', target))
         elif cmd == "help":
             if target[0] == '#':
-                destination = ('notice', source)
+                destination = ('notice', nick)
             else:
-                destination = ('privmsg', source)
+                destination = ('privmsg', nick)
             self.queueMessage(destination, "Help for permission level " + permlev, True)
             if adequatePermission('USER', permlev):
                 self.queueMessage(destination, "USER and higher: calc apropos aproposk aproposv status", True)
@@ -449,6 +594,51 @@ class TestBot(SingleServerIRCBot):
             if adequatePermission('GOD', permlev):
                 self.queueMessage(destination, "GOD and higher:", True)
             self.queueMessage(destination, "\"help command\" for detailed help", True)
+        elif cmd == "more":
+            self.queueCompositeMore(nick, ('privmsg', target))
+        elif cmd == "showhost":
+            if len(data) == 0:
+                targetnick = match(e.source())
+                if targetnick == "":
+                    self.queueMessage(('privmsg', source), 'Can\'t figure out who you are!')
+                    return
+            elif len(data) == 1:
+                targetnick = data[0]
+            else:
+                self.queueMessage(('privmsg', source), 'Usage: showhost [name]')
+                return
+            returnval = showhost(targetnick)
+            self.queueCompositeMessage(nick, returnval, "%s (%s): " % (targetnick, getNickPermissions(targetnick)))
+            self.queueCompositeMore(nick, ('privmsg', target))
+        elif cmd == "rmhost":
+            if len(data) != 2:
+                self.queueMessage(('privmsg', source), 'Usage: rmhost user mask')
+                return
+            if not rmhost(data[0], data[1], e.source()):
+                self.queueMessage(('privmsg', source), "Didn't work")
+            else:
+                self.queueMessage(('privmsg', source), "Success")
+        elif cmd == "addhost":
+            if len(data) != 2:
+                self.queueMessage(('privmsg', source), 'Usage: addhost user mask')
+                return
+            if not addhost(data[0], data[1], e.source()):
+                self.queueMessage(('privmsg', source), "Didn't work")
+            else:
+                self.queueMessage(('privmsg', source), "Success")
+        elif cmd == "chperm":
+            if len(data) != 2:
+                self.queueMessage(('privmsg', source), 'Usage: chperm user [IGNORE|USER|PUBLIC|CHANGE|AUTHORIZE|GOD]')
+                return
+            if not chperm(data[0], data[1], e.source()):
+                self.queueMessage(('privmsg', source), "Didn't work")
+            else:
+                self.queueMessage(('privmsg', source), "Success")
+            """elif cmd == "match":
+            if len(data) != 2:
+                self.queueMessage(('privmsg', source), 'Usage: chperm user [IGNORE|USER|PUBLIC|CHANGE|AUTHORIZE|GOD]')
+                return
+            addhost(user, mask, e.source())"""
         else:
             raise Error, "Shouldn't get here."
 
@@ -491,9 +681,41 @@ def main():
         input = open(sys.argv[2])
         for x in input:
             tok = x.split("::", 3)
+            if tok == ["\n"]:
+                break
             print "Adding %s: %s" % (tok[1], tok[3])
             changeEntry(tok[1], tok[3], tok[0])
             setCount(tok[1], int(tok[2]))
+    elif sys.argv[1] == "loadusers":
+        if len(sys.argv) != 3:
+            print "Missing filename"
+        initDb()
+        input = open(sys.argv[2])
+        for x in input:
+            print "got", x
+            if x[0] == '#' or x[0] == '\n':
+                continue
+            tok = toki(x)
+            if len(tok) != 3:
+                raise Error, "Bort"
+            tok[0] = tok[0].lower()
+            for mask in tok[1].split(','):
+                print "adding", mask, "for", tok[0]
+                addhost(tok[0], mask, "loadusers")
+            if tok[-1] == "f":
+                newperm = "PUBLIC"
+            elif tok[-1] == "o":
+                newperm = "CHANGE"
+            elif tok[-1] == "m" or tok[-1] == "+m":
+                newperm = "AUTHORIZE"
+            elif tok[-1] == "n":
+                newperm = "GOD"
+            elif tok[-1] == "x":
+                newperm = "USER"
+            else:
+                raise Error, "Dang"
+            chperm(tok[0], newperm, "loadusers")
+        chperm("zorbathut", "GOD", "loadusers")
     else:
         print "Error"
         sys.exit(1)
