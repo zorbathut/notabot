@@ -15,7 +15,7 @@ def itime():
 
 def initDb():
     global db
-    db = MySQLdb.connect(host='maximillian',user='calcme',passwd='bigblackhardcaulk',db="calcme")
+    db = MySQLdb.connect(host='localhost',user='calcme',passwd='bigblackhardcaulk',db="calcme")
     print db
 
 def safeExecute(cursor, string, params):
@@ -123,17 +123,17 @@ def apropos(data, name, value):
     global db
     c=db.cursor()
     if name == 0 and value == 1:
-        c, rv = safeExecute(c, 'SELECT name FROM current WHERE value LIKE CONCAT("%%", %s, "%%")', (data,))
+        c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND value LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
         if rv == 0:
             print "Dropped value"
             return "";
     elif name == 1 and value == 0:
-        c, rv = safeExecute(c, 'SELECT name FROM current WHERE name LIKE CONCAT("%%", %s, "%%")', (data,))
+        c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND name LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
         if rv == 0:
             print "Dropped name"
             return "";
     elif name == 1 and value == 1:
-        c, rv = safeExecute(c, 'SELECT name FROM current WHERE name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%")', (data,data))
+        c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND ( name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%") ) ORDER BY name', (data,data))
         if rv == 0:
             print "Dropped both"
             return "";
@@ -271,7 +271,9 @@ class TestBot(SingleServerIRCBot):
        
         """planned variables: cmd, source, target, entry, data"""
         
-        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv":
+        confused = 0
+        
+        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2":
             if e.eventtype() == "pubmsg":
                 target = e.target()
                 source = e.target()
@@ -293,9 +295,10 @@ class TestBot(SingleServerIRCBot):
         else:
             return
 
-        if cmd == "calc" or cmd == "status" or cmd == "rmcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv":
+        if cmd == "calc" or cmd == "status" or cmd == "rmcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2":
             if len(instr) == 1 or instr[1] == "":
-                return
+                confused = 1
+                entry = ""
             else:
                 entry = instr[1]
             data = ""
@@ -303,14 +306,20 @@ class TestBot(SingleServerIRCBot):
             pass
         elif cmd == "mkcalc" or cmd == "chcalc":
             if len(instr) == 1 or instr[1] == "":
-                return
-            dat = instr[1].split('=', 1)
-            if len(dat) != 2:
-                return
-            dat[0] = dat[0].strip()
-            dat[1] = dat[1].strip()
-            entry = dat[0]
-            data = dat[1]
+                confused = 1
+                entry = ""
+                data = ""
+            else:
+                dat = instr[1].split('=', 1)
+                if len(dat) != 2 or dat[0].strip() == "" or dat[1].strip() == "":
+                    confused = 1
+                    entry = ""
+                    data = ""
+                else:
+                    dat[0] = dat[0].strip()
+                    dat[1] = dat[1].strip()
+                    entry = dat[0]
+                    data = dat[1]
         else:
             raise Error, "Shouldn't get here."
             
@@ -331,6 +340,14 @@ class TestBot(SingleServerIRCBot):
         if permlev == 'IGNORE':
             return
             
+        if (cmd == "apropos2"):
+            self.queueMessage(('notice', nick), "apropos2 no longer exists. Use aproposk to search keys, aproposv to search values, or apropos to search both.")
+            return
+        
+        if (confused):
+            self.queueMessage(('notice', nick), "Confused? Type help in msg for a list of available commands.")
+            return
+        
         if (cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc") and not adequatePermission('OP', permlev):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op yourself or stop trying.")
             return
