@@ -30,12 +30,15 @@ g_queryCount = 0
 g_changeCount = 0
 g_startDate = 0
 
+g_username = ""
+g_passwd = ""
+
 def itime():
     return int(time.time())
 
 def initDb():
-    global db
-    db = MySQLdb.connect(host='maximillian',user='calcme',passwd='bigblackhardcaulk',db="calcme")
+    global db, g_username, g_passwd
+    db = MySQLdb.connect(host='localhost',user=g_username,passwd=g_passwd,db="calcme")
     print db
 
 def safeExecute(cursor, string, params):
@@ -709,14 +712,16 @@ def main():
     import sys
     print len(sys.argv)
     if len(sys.argv) == 1:
-        print "Usages: testbot run <server[:port]> <channel> <nickname>"
+        print "Usages: testbot run <server[:port]> <channel> <nickname> dbusername dbpassword"
         print "        testbot load <filename>"
         sys.exit(1)
     if sys.argv[1] == "run":
-        if len(sys.argv) != 5:
-            print "Usage: testbot <server[:port]> <channel> <nickname>"
+        if len(sys.argv) != 7:
             sys.exit(1)
-            
+        
+	global g_username, g_passwd
+	g_username = sys.argv[5]
+	g_passwd = sys.argv[6]
         initDb()
     
         s = string.split(sys.argv[2], ":", 1)
