@@ -9,13 +9,14 @@ from ircbot import SingleServerIRCBot
 from irclib import nm_to_n, nm_to_h, irc_lower, ip_numstr_to_quad, ip_quad_to_numstr
 import MySQLdb
 import time as time
+import sys as sys
 
 def itime():
     return int(time.time())
 
 def initDb():
     global db
-    db = MySQLdb.connect(host='localhost',user='calcme',passwd='bigblackhardcaulk',db="calcme")
+    db = MySQLdb.connect(host='maximillian',user='calcme',passwd='bigblackhardcaulk',db="calcme")
     print db
 
 def safeExecute(cursor, string, params):
@@ -30,7 +31,7 @@ def safeExecute(cursor, string, params):
         return cursor, rv
 
 def getPermissionDict():
-    levels = {-1:'IGNORE', 0:'USER', 1:'VOICE', 2:'OP', 3:'MASTER'}
+    levels = {-1:'IGNORE', 0:'USER', 1:'PUBLIC', 2:'CHANGE', 3:'AUTHORIZE', 4:'GOD'}
     print [(value, key) for key, value in levels.iteritems()]
     revlevels = dict([(value, key) for key, value in levels.iteritems()])
     return levels, revlevels
@@ -49,15 +50,13 @@ def adequatePermission(needed, have):
 def getPermissions(user, nick, channel):
     global db
     c=db.cursor()
-    c, rv = safeExecute(c, 'SELECT permlev FROM perms WHERE %s LIKE hostmask', (user,))
-    if rv == 0:
-        cp = 'USER'
-    else:
-        cp = c.fetchone()[0]
-    if channel.is_voiced(nick) and cp != 'IGNORE':
-        cp = greaterPermission(cp, 'VOICE')
+    c, rv = safeExecute(c, 'SELECT max(permlev) FROM perms WHERE %s LIKE hostmask', (user,))
+    cp = c.fetchone()[0]
+    if cp == None:
+        cp = "USER"
+    print "permoutput:", cp
     if channel.is_oper(nick):
-        cp = greaterPermission(cp, 'OP')
+        cp = greaterPermission(cp, 'AUTHORIZE')
     return cp
 
 def getEntry(entry):
@@ -155,46 +154,41 @@ class TestBot(SingleServerIRCBot):
             self.channelkey = channel.split(':')[1]
         else:
             self.channelkey = ""
-        self.lastspoken = itime()
-        self.lastsaid = [(("",""),"")]*8
-        self.lastsaidupd = 0
+        self.nextspeak = itime()
+        self.lastsaid = []
         self.lasttargeted = {}
         self.curtargets = {}
         self.timerRunning = 0
         
     def updateLastsaid(self):
         print self.lastsaid
-        diff = itime() - self.lastsaidupd
-        diff = diff / 2
-        print diff
-        if diff < 8:
-            self.lastsaid = [(("",""),"")]*diff + self.lastsaid[:8-diff]
-        else:
-            self.lastsaid = [(("",""),"")]*8
-        self.lastsaidupd = itime()
+        while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 15:
+            self.lastsaid = self.lastsaid[1:]
         print self.lastsaid
         
-    def queueMessage(self, target, data):
+    def queueMessage(self, target, data, cull = False):
         print "queueing ", target, data
         self.updateLastsaid()
         if not self.curtargets.has_key(target):
             self.curtargets[target] = []
         if not self.lasttargeted.has_key(target):
             self.lasttargeted[target] = 0
-        print self.lastsaid
-        print self.curtargets
-        print self.timerRunning
-        print self.lastspoken
-        print itime()
-        if not self.curtargets[target].count(data) and not self.lastsaid.count((target, data)):
-            print "interesting, appending"
+        for time, value in self.lastsaid:
+            if value == (target, data):
+                if len(self.curtargets[target]) == 0:
+                    del self.curtargets[target]
+                return
+        #print self.lastsaid
+        #print self.curtargets
+        #print self.timerRunning
+        #print self.lastspoken
+        #print itime()
+        if not cull or not self.curtargets[target].count(data):
             self.curtargets[target].append(data)
-            if not self.timerRunning and self.lastspoken + 2 <= itime():
-                print "deque"
+            if not self.timerRunning and self.nextspeak <= itime():
                 self.timerRunning = 1
                 self.dequeueMessage()
             elif not self.timerRunning:
-                print "deque"
                 self.timerRunning = 1
                 self.ircobj.execute_delayed(1, self.dequeueMessage, ())
         elif len(self.curtargets[target]) == 0:
@@ -202,13 +196,13 @@ class TestBot(SingleServerIRCBot):
             
     def dequeueMessage(self):
         print "entering deque"
-        if self.lastspoken + 2 > itime():
+        if self.nextspeak > itime():
             self.ircobj.execute_delayed(1, self.dequeueMessage, ())
             return
         self.updateLastsaid()
         while 1:
             target = ("","")
-            besttime = itime()
+            besttime = itime() + 60
             for key in self.curtargets.iterkeys():
                 if self.lasttargeted[key] < besttime:
                     besttime = self.lasttargeted[key]
@@ -222,15 +216,16 @@ class TestBot(SingleServerIRCBot):
                 del self.curtargets[target]
             else:
                 self.curtargets[target] = self.curtargets[target][1:]
-            self.lastsaid[0] = (target, data)
+            self.lastsaid.append((itime(),(target,data)))
             self.lasttargeted[target] = itime()
             if target[0] == 'notice':
                 self.connection.notice(target[1], data)
             elif target[0] == 'privmsg':
                 self.connection.privmsg(target[1], data)
-            self.lastspoken = itime()
+            self.nextspeak = max(self.nextspeak + 2, itime() - 6 + 2)
             if len(self.curtargets):
-                self.ircobj.execute_delayed(1, self.dequeueMessage, ())
+                self.dequeueMessage()
+                #self.ircobj.execute_delayed(1, self.dequeueMessage, ())
             else:
                 self.timerRunning = 0
             return
@@ -255,13 +250,30 @@ class TestBot(SingleServerIRCBot):
 
     def on_pubmsg(self, c, e):
         self.do_command(e)
+        
+    def on_kick(self, c, e):
+        c.join(self.channel, self.channelkey)
+        
+    def on_disconnect(self, c, e):
+        print "Disconnected, sleeping"
+        time.sleep(30)
+        print "Dying"
+        sys.exit(1)
+        
+    def on_bannedfromchan(self, c, e):
+        print "Banned, sleeping"
+        time.sleep(30)
+        print "Retrying"
+        c.join(self.channel, self.channelkey)
 
     def do_command(self, e):
-        print e.eventtype()
-        print e.source()
-        print e.target()
-        print e.arguments()
-        instr = e.arguments()[0].split(' ', 1)
+        #print e.eventtype()
+        #print e.source()
+        #print e.target()
+        #print e.arguments()
+        striparg = e.arguments()[0].replace("\x02", "").replace("\x1f", "").replace("\x03", "")
+        
+        instr = striparg.split(' ', 1)
         cmd = instr[0]
         if len(instr) > 1:
             instr[1] = instr[1].strip()
@@ -273,7 +285,7 @@ class TestBot(SingleServerIRCBot):
         
         confused = 0
         
-        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2":
+        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "help":
             if e.eventtype() == "pubmsg":
                 target = e.target()
                 source = e.target()
@@ -282,16 +294,26 @@ class TestBot(SingleServerIRCBot):
                 source = nick
         elif cmd == "tell":
             if len(instr) == 1 or instr[1] == "":
-                return
-            tellparse = instr[1].split(' ', 2)
-            if len(tellparse) == 3:
-                tellparse[0] = tellparse[0].strip()
-                tellparse[2] = tellparse[2].strip()
-            if tellparse[2] == "":
-                return
-            target = tellparse[0]
-            source = nick
-            entry = tellparse[2]
+                confused = 1
+                entry = ""
+                source = nick
+                target = ""
+            else :
+                tellparse = instr[1].split(' ', 1)
+                if len(tellparse) == 2:
+                    tellparse[1:] = tellparse[1].strip().split(' ', 1)
+                    if len(tellparse) == 3:
+                        tellparse[0] = tellparse[0].strip()
+                        tellparse[2] = tellparse[2].strip()
+                if len(tellparse) != 3 or tellparse[2] == "":
+                    confused = 1
+                    entry = ""
+                    source = nick
+                    target = ""
+                else:
+                    target = tellparse[0]
+                    source = nick
+                    entry = tellparse[2]
         else:
             return
 
@@ -320,6 +342,9 @@ class TestBot(SingleServerIRCBot):
                     dat[1] = dat[1].strip()
                     entry = dat[0]
                     data = dat[1]
+        elif cmd == "help":
+            entry = ""
+            data = ""
         else:
             raise Error, "Shouldn't get here."
             
@@ -348,15 +373,15 @@ class TestBot(SingleServerIRCBot):
             self.queueMessage(('notice', nick), "Confused? Type help in msg for a list of available commands.")
             return
         
-        if (cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc") and not adequatePermission('OP', permlev):
+        if (cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc") and not adequatePermission('CHANGE', permlev):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op yourself or stop trying.")
             return
             
-        if cmd == "tell" and not adequatePermission('VOICE', permlev):
+        if cmd == "tell" and not adequatePermission('PUBLIC', permlev):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op/voice yourself or stop trying.")
             return
             
-        if target[0] == '#' and not adequatePermission('VOICE', permlev):
+        if target[0] == '#' and not adequatePermission('PUBLIC', permlev):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")
             return
             
@@ -365,22 +390,22 @@ class TestBot(SingleServerIRCBot):
             """ this whole section should be a lot better """
             if data == "":
                 if cmd == "tell":
-                    self.queueMessage(('notice', source), "no entry for " + entry)
+                    self.queueMessage(('notice', source), "no entry for " + entry, True)
                 else:
-                    self.queueMessage(('privmsg', source), "no entry for " + entry)
+                    self.queueMessage(('privmsg', source), "no entry for " + entry, True)
             else:
                 if cmd == "tell":
-                    self.queueMessage(('privmsg', target), nick + " wanted me to tell you:")
-                    self.queueMessage(('notice', source), 'sent calc for "%s" to %s' % (entry, target))
-                self.queueMessage(('privmsg', target), entry + " = " + data)
+                    self.queueMessage(('privmsg', target), nick + " wanted me to tell you:", True)
+                    self.queueMessage(('notice', source), 'sent calc for "%s" to %s' % (entry, target), True)
+                self.queueMessage(('privmsg', target), entry + " = " + data, True)
             incrementCount(entry)
         elif cmd == "status":
             data = getCount(entry)
-            self.queueMessage(('privmsg', source), '"%s" has been queried %d times.' % (entry, data))
+            self.queueMessage(('privmsg', source), '"%s" has been queried %d times.' % (entry, data), True)
         elif cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc":
             olddata = getEntry(entry)
             if cmd == "rmcalc" and olddata == "":
-                self.queueMessage(('privmsg', source), '"%s" is not a valid calc' % (entry,))
+                self.queueMessage(('privmsg', source), '"%s" is not a valid calc' % (entry,), True)
                 return
             if cmd == "mkcalc" and olddata != "":
                 self.queueMessage(('privmsg', source), 'I already have an entry for "%s"' % (entry,))
@@ -406,7 +431,24 @@ class TestBot(SingleServerIRCBot):
             else:
                 for ite in returnval:
                     output = output + ( '"%s" ' % ite )
-            self.queueMessage(('privmsg', target), output)
+            self.queueMessage(('privmsg', target), output, True)
+        elif cmd == "help":
+            if target[0] == '#':
+                destination = ('notice', source)
+            else:
+                destination = ('privmsg', source)
+            self.queueMessage(destination, "Help for permission level " + permlev, True)
+            if adequatePermission('USER', permlev):
+                self.queueMessage(destination, "USER and higher: calc apropos aproposk aproposv status", True)
+            if adequatePermission('PUBLIC', permlev):
+                self.queueMessage(destination, "PUBLIC and higher: calc tell", True)
+            if adequatePermission('CHANGE', permlev):
+                self.queueMessage(destination, "CHANGE and higher: mkcalc rmcalc chcalc", True)
+            if adequatePermission('AUTHORIZE', permlev):
+                self.queueMessage(destination, "AUTHORIZE and higher:", True)
+            if adequatePermission('GOD', permlev):
+                self.queueMessage(destination, "GOD and higher:", True)
+            self.queueMessage(destination, "\"help command\" for detailed help", True)
         else:
             raise Error, "Shouldn't get here."
 
