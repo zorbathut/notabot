@@ -32,13 +32,14 @@ g_startDate = 0
 
 g_username = ""
 g_passwd = ""
+g_dbhost = ""
 
 def itime():
     return int(time.time())
 
 def initDb():
-    global db, g_username, g_passwd
-    db = MySQLdb.connect(host='localhost',user=g_username,passwd=g_passwd,db="calcme")
+    global db, g_username, g_passwd, g_dhost
+    db = MySQLdb.connect(host=g_dbhost,user=g_username,passwd=g_passwd,db="calcme")
     print db
 
 def safeExecute(cursor, string, params):
@@ -412,7 +413,7 @@ class TestBot(SingleServerIRCBot):
         c.join(self.channel, self.channelkey)
         
     def doCompositeCulling(self):
-        if self.compositeBuffer.length() < 100:
+        if len(self.compositeBuffer) < 100:
             return
         todelete = []
         for key in self.compositeBuffer.iterkeys():
@@ -712,16 +713,17 @@ def main():
     import sys
     print len(sys.argv)
     if len(sys.argv) == 1:
-        print "Usages: testbot run <server[:port]> <channel> <nickname> dbusername dbpassword"
+        print "Usages: testbot run <server[:port]> <channel> <nickname> dbhost dbusername dbpassword"
         print "        testbot load <filename>"
         sys.exit(1)
     if sys.argv[1] == "run":
-        if len(sys.argv) != 7:
+        if len(sys.argv) != 8:
             sys.exit(1)
         
-	global g_username, g_passwd
-	g_username = sys.argv[5]
-	g_passwd = sys.argv[6]
+        global g_username, g_passwd, g_dbhost
+        g_dbhost = sys.argv[5]
+        g_username = sys.argv[6]
+        g_passwd = sys.argv[7]
         initDb()
     
         s = string.split(sys.argv[2], ":", 1)
