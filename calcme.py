@@ -8,78 +8,128 @@ import string
 from ircbot import SingleServerIRCBot
 from irclib import nm_to_n, nm_to_h, irc_lower, ip_numstr_to_quad, ip_quad_to_numstr
 import MySQLdb
+import time as time
+
+def itime():
+    return int(time.time())
+
+def initDb():
+    global db
+    db = MySQLdb.connect(host='maximillian',user='calcme',passwd='bigblackhardcaulk',db="calcme")
+    print db
 
 def safeExecute(cursor, string, params):
     try:
         rv=cursor.execute(string, params)
         return cursor, rv
-    except OperationalError:
+    except MySQLdb.OperationalError:
         print "Fuck, caught OperationalError"
         initDb()
         cursor=db.cursor()
         rv=cursor.execute(string, params)
-        return (cursor, rv)
+        return cursor, rv
 
-def initDb():
+def getPermissionDict():
+    levels = {-1:'IGNORE', 0:'USER', 1:'VOICE', 2:'OP', 3:'MASTER'}
+    print [(value, key) for key, value in levels.iteritems()]
+    revlevels = dict([(value, key) for key, value in levels.iteritems()])
+    return levels, revlevels
+
+def greaterPermission(lhs, rhs):
+    levels, revlevels = getPermissionDict()
+    lhsl = revlevels[lhs]
+    rhsl = revlevels[rhs]
+    return levels[max(lhsl, rhsl)]
+    
+def adequatePermission(needed, have):
+    levels, revlevels = getPermissionDict()
+    print "got", have, "needed", needed, "result", revlevels[needed] <= revlevels[have]
+    return revlevels[needed] <= revlevels[have]
+
+def getPermissions(user, nick, channel):
     global db
-    db = MySQLdb.connect(host='localhost',user='calcme',passwd='bigblackhardcaulk',db="calcme")
-    print db
+    c=db.cursor()
+    c, rv = safeExecute(c, 'SELECT permlev FROM perms WHERE %s LIKE hostmask', (user,))
+    if rv == 0:
+        cp = 'USER'
+    else:
+        cp = c.fetchone()[0]
+    if channel.is_voiced(nick) and cp != 'IGNORE':
+        cp = greaterPermission(cp, 'VOICE')
+    if channel.is_oper(nick):
+        cp = greaterPermission(cp, 'OP')
+    return cp
 
 def getEntry(entry):
     global db
     c=db.cursor()
-    print entry
-    print len(entry)
-    if c.execute('SELECT value FROM current WHERE name = %s', (entry,)) == 0:
+    c, rv = safeExecute(c, 'SELECT value FROM current WHERE name = %s', (entry,))
+    if rv == 0:
         return ""
     return c.fetchone()[0]
     
 def getCount(entry):
     global db
     c=db.cursor()
-    if c.execute('SELECT count FROM current WHERE name = %s', (entry,)) == 0:
-        return ""
+    c, rv = safeExecute(c, 'SELECT count FROM current WHERE name = %s', (entry,))
+    if rv == 0:
+        return 0
     return c.fetchone()[0]
 
 def incrementCount(entry):
     global db
     print "Incrementing " + entry
     c=db.cursor()
-    if c.execute('UPDATE current SET count = count+ 1 WHERE name = %s', (entry,)) == 0:
-        raise Error, "Can't seem to increment for some reason."
+    c, rv = safeExecute(c, 'UPDATE current SET count = count + 1 WHERE name = %s', (entry,))
+    if rv == 0:
+        c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, "", 1))
+        if rv == 0:
+            raise Error, "Can't seem to increment for some reason."
         
 def changeEntry(entry, data, user):
     global db
     c=db.cursor()
-    if c.execute('SELECT max( version ) FROM versions WHERE name = %s', (entry,)) == 0:
+    c, rv = safeExecute(c, 'SELECT max( version ) FROM versions WHERE name = %s', (entry,))
+    if rv == 0:
         raise Error, "Select is fucked."
     nextversion = c.fetchone()[0]
     if nextversion == None:
+        print "NV is none"
         nextversion = 0
-        if c.execute('INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, "", 0)) == 0:
-            raise Error, "Insert is fucked."
     else:
+        print "NV is ", nextversion
         nextversion = nextversion + 1
-    print nextversion
-    if c.execute('INSERT INTO versions ( name, version, modifier, value ) VALUES ( %s, %s, %s, %s )', (entry, nextversion, user, data)) == 0:
+    print "NV is now ", nextversion
+    c, rv = safeExecute(c, 'INSERT INTO versions ( name, version, modifier, value, changed ) VALUES ( %s, %s, %s, %s, NOW() )', (entry, nextversion, user, data))
+    if rv == 0:
         raise Error, "Versioning is fucked."
-    if c.execute('UPDATE current SET value = %s WHERE name = %s', (data, entry)) == 0:
-        raise Error, "Updating is fucked."
-        
+    print "entry is ", entry
+    print "data is ", data
+    c, rv = safeExecute(c, 'UPDATE current SET value = %s WHERE name = %s', (data, entry))
+    if rv == 0:
+        c, rv = safeExecute(c, 'SELECT * FROM current WHERE value = %s AND name = %s', (data,entry))
+        if rv == 0:
+            c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, data, 0))
+            if rv == 0:
+                raise Error, "Current is fucked weirdly."
+
+
 def apropos(data, name, value):
     global db
     c=db.cursor()
     if name == 0 and value == 1:
-        if c.execute('SELECT name FROM current WHERE value LIKE CONCAT("%%", %s, "%%")', (data,)) == 0:
+        c, rv = safeExecute(c, 'SELECT name FROM current WHERE value LIKE CONCAT("%%", %s, "%%")', (data,))
+        if rv == 0:
             print "Dropped value"
             return "";
     elif name == 1 and value == 0:
-        if c.execute('SELECT name FROM current WHERE name LIKE CONCAT("%%", %s, "%%")', (data,)) == 0:
+        c, rv = safeExecute(c, 'SELECT name FROM current WHERE name LIKE CONCAT("%%", %s, "%%")', (data,))
+        if rv == 0:
             print "Dropped name"
             return "";
     elif name == 1 and value == 1:
-        if c.execute('SELECT name FROM current WHERE name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%")', (data,data)) == 0:
-            print 'SELECT name FROM current WHERE name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%")' % (data,data)
+        c, rv = safeExecute(c, 'SELECT name FROM current WHERE name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%")', (data,data))
+        if rv == 0:
             print "Dropped both"
             return "";
     else:
@@ -96,6 +146,94 @@ class TestBot(SingleServerIRCBot):
     def __init__(self, channel, nickname, server, port=6667):
         SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
         self.channel = channel
+        self.lastspoken = itime()
+        self.lastsaid = [(("",""),"")]*8
+        self.lastsaidupd = 0
+        self.lasttargeted = {}
+        self.curtargets = {}
+        self.timerRunning = 0
+        
+    def updateLastsaid(self):
+        print self.lastsaid
+        diff = itime() - self.lastsaidupd
+        diff = diff / 2
+        print diff
+        if diff < 8:
+            self.lastsaid = [(("",""),"")]*diff + self.lastsaid[:8-diff]
+        else:
+            self.lastsaid = [(("",""),"")]*8
+        self.lastsaidupd = itime()
+        print self.lastsaid
+        
+    def queueMessage(self, target, data):
+        print "queueing ", target, data
+        self.updateLastsaid()
+        if not self.curtargets.has_key(target):
+            self.curtargets[target] = []
+        if not self.lasttargeted.has_key(target):
+            self.lasttargeted[target] = 0
+        print self.lastsaid
+        print self.curtargets
+        print self.timerRunning
+        print self.lastspoken
+        print itime()
+        if not self.curtargets[target].count(data) and not self.lastsaid.count((target, data)):
+            print "interesting, appending"
+            self.curtargets[target].append(data)
+            if not self.timerRunning and self.lastspoken + 2 <= itime():
+                print "deque"
+                self.timerRunning = 1
+                self.dequeueMessage()
+            elif not self.timerRunning:
+                print "deque"
+                self.timerRunning = 1
+                self.ircobj.execute_delayed(1, self.dequeueMessage, ())
+        elif len(self.curtargets[target]) == 0:
+            del self.curtargets[target]
+            
+    def dequeueMessage(self):
+        print "entering deque"
+        if self.lastspoken + 2 > itime():
+            self.ircobj.execute_delayed(1, self.dequeueMessage, ())
+            return
+        self.updateLastsaid()
+        while 1:
+            target = ("","")
+            besttime = itime()
+            for key in self.curtargets.iterkeys():
+                if self.lasttargeted[key] < besttime:
+                    besttime = self.lasttargeted[key]
+                    target = key
+            if target == ("",""):
+                raise Error, "Queue fucked"
+            data = self.curtargets[target][0]
+            print "snagorated ", target, data
+            print (target, data)
+            if len(self.curtargets[target]) == 1:
+                del self.curtargets[target]
+            else:
+                self.curtargets[target] = self.curtargets[target][1:]
+            self.lastsaid[0] = (target, data)
+            self.lasttargeted[target] = itime()
+            if target[0] == 'notice':
+                self.connection.notice(target[1], data)
+            elif target[0] == 'privmsg':
+                self.connection.privmsg(target[1], data)
+            self.lastspoken = itime()
+            if len(self.curtargets):
+                self.ircobj.execute_delayed(1, self.dequeueMessage, ())
+            else:
+                self.timerRunning = 0
+            return
+
+            
+        """
+            if target[0] == 'notice':
+            self.connection.notice(target[1], data)
+        elif target[0] == 'privmsg':
+            self.connection.privmsg(target[1], data)"""
+        
+        
 
     def on_nicknameinuse(self, c, e):
         c.nick(c.get_nickname() + "_")
@@ -169,45 +307,61 @@ class TestBot(SingleServerIRCBot):
             raise Error, "Shouldn't get here."
             
         entry = entry.lower()
-            
-        if (cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc") and nick not in self.channels.items()[0][1].opers():
-            c.notice(nick, "Sorry, you don't have permission to do that. Op yourself or stop trying.")
+        
+        print self.channels
+        print self.channels[self.channel]
+        print self.channels[self.channel].userdict
+        print self.channels[self.channel].operdict
+        print self.channels[self.channel].voiceddict
+        print nick
+        print self.channels[self.channel].operdict.has_key(nick)
+        print self.channels[self.channel].is_oper(nick)
+        
+        permlev = getPermissions(e.source(), nick, self.channels[self.channel])
+        print permlev
+        
+        if permlev == 'IGNORE':
             return
             
-        if cmd == "tell" and nick not in self.channels.items()[0][1].opers() and nick not in self.channels.items()[0][1].voiced():
-            c.notice(nick, "Sorry, you don't have permission to do that. Op/voice yourself or stop trying.")
+        if (cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc") and not adequatePermission('OP', permlev):
+            self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op yourself or stop trying.")
             return
             
-        if target[0] == '#' and nick not in self.channels.items()[0][1].opers() and nick not in self.channels.items()[0][1].voiced():
-            c.notice(nick, "Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")
+        if cmd == "tell" and not adequatePermission('VOICE', permlev):
+            self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op/voice yourself or stop trying.")
+            return
+            
+        if target[0] == '#' and not adequatePermission('VOICE', permlev):
+            self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")
             return
             
         if cmd == "calc" or cmd == "tell":
             data = getEntry(entry)
+            """ this whole section should be a lot better """
             if data == "":
-                c.privmsg(source, "no entry for " + entry)
+                if cmd == "tell":
+                    self.queueMessage(('notice', source), "no entry for " + entry)
+                else:
+                    self.queueMessage(('privmsg', source), "no entry for " + entry)
             else:
                 if cmd == "tell":
-                    c.privmsg(target, nick + " wanted me to tell you:")
-                    c.privmsg(source, 'sent calc for "%s" to %s' % (entry, target))
-                c.privmsg(target, entry + " = " + data)
-                incrementCount(entry)
+                    self.queueMessage(('privmsg', target), nick + " wanted me to tell you:")
+                    self.queueMessage(('notice', source), 'sent calc for "%s" to %s' % (entry, target))
+                self.queueMessage(('privmsg', target), entry + " = " + data)
+            incrementCount(entry)
         elif cmd == "status":
             data = getCount(entry)
-            if data == "":
-                c.privmsg(source, "no entry for " + entry)
-            else:
-                c.privmsg(target, '"%s" has been queried %d times.' % (entry, data))
+            self.queueMessage(('privmsg', source), '"%s" has been queried %d times.' % (entry, data))
         elif cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc":
             olddata = getEntry(entry)
             if cmd == "rmcalc" and olddata == "":
-                c.privmsg(source, '"%s" is not a valid calc' % (entry,))
+                self.queueMessage(('privmsg', source), '"%s" is not a valid calc' % (entry,))
                 return
             if cmd == "mkcalc" and olddata != "":
-                c.privmsg(source, 'I already have an entry for "%s"' % (entry,))
+                self.queueMessage(('privmsg', source), 'I already have an entry for "%s"' % (entry,))
                 return
             changeEntry(entry, data, e.source())
-            c.privmsg(target, "Change complete.")
+            self.queueMessage(('privmsg', target), "Change complete.")
         elif cmd == "apropos" or cmd == "aproposv" or cmd == "aproposk":
             if cmd == "apropos":
                 ki = 1
@@ -227,7 +381,7 @@ class TestBot(SingleServerIRCBot):
             else:
                 for ite in returnval:
                     output = output + ( '"%s" ' % ite )
-            c.privmsg(target, output)
+            self.queueMessage(('privmsg', target), output)
         else:
             raise Error, "Shouldn't get here."
 
@@ -242,10 +396,6 @@ def main():
         sys.exit(1)
         
     initDb()
-    
-    a, b = crazyfunk()
-    print a
-    print b
 
     s = string.split(sys.argv[1], ":", 1)
     server = s[0]
