@@ -9,9 +9,20 @@ from ircbot import SingleServerIRCBot
 from irclib import nm_to_n, nm_to_h, irc_lower, ip_numstr_to_quad, ip_quad_to_numstr
 import MySQLdb
 
+def safeExecute(cursor, string, params):
+    try:
+        rv=cursor.execute(string, params)
+        return cursor, rv
+    except OperationalError:
+        print "Fuck, caught OperationalError"
+        initDb()
+        cursor=db.cursor()
+        rv=cursor.execute(string, params)
+        return (cursor, rv)
+
 def initDb():
     global db
-    db = MySQLdb.connect(host='maximillian',user='calcme',passwd='bigblackhardcaulk',db="calcme")
+    db = MySQLdb.connect(host='localhost',user='calcme',passwd='bigblackhardcaulk',db="calcme")
     print db
 
 def getEntry(entry):
@@ -19,11 +30,8 @@ def getEntry(entry):
     c=db.cursor()
     print entry
     print len(entry)
-    print 'SELECT value FROM current WHERE name = "%s"' % (entry,)
     if c.execute('SELECT value FROM current WHERE name = %s', (entry,)) == 0:
-        print "evil"
         return ""
-    print "porn"
     return c.fetchone()[0]
     
 def getCount(entry):
@@ -93,13 +101,14 @@ class TestBot(SingleServerIRCBot):
         c.nick(c.get_nickname() + "_")
 
     def on_welcome(self, c, e):
+        #c.join(self.channel, "CalcOps")
         c.join(self.channel)
 
     def on_privmsg(self, c, e):
         self.do_command(e)
 
     def on_pubmsg(self, c, e):
-		self.do_command(e)
+        self.do_command(e)
 
     def do_command(self, e):
         print e.eventtype()
@@ -222,6 +231,8 @@ class TestBot(SingleServerIRCBot):
         else:
             raise Error, "Shouldn't get here."
 
+def crazyfunk():
+    return 5, 7
 
 def main():
     import sys
@@ -231,6 +242,10 @@ def main():
         sys.exit(1)
         
     initDb()
+    
+    a, b = crazyfunk()
+    print a
+    print b
 
     s = string.split(sys.argv[1], ":", 1)
     server = s[0]
