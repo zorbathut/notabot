@@ -78,14 +78,24 @@ def getCount(entry):
 
 def incrementCount(entry):
     global db
-    print "Incrementing " + entry
     c=db.cursor()
     c, rv = safeExecute(c, 'UPDATE current SET count = count + 1 WHERE name = %s', (entry,))
     if rv == 0:
         c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, "", 1))
         if rv == 0:
             raise Error, "Can't seem to increment for some reason."
-        
+
+def setCount(entry, count):
+    global db
+    c=db.cursor()
+    print count, entry
+    c, rv = safeExecute(c, 'UPDATE current SET count = %s WHERE name = %s', (count,entry))
+    if rv == 0:
+        c, rv = safeExecute(c, 'SELECT * FROM current WHERE count = %s AND name = %s', (count,entry))
+        if rv == 0:
+            c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, "", count))
+            raise Error, "Can't seem to set for some reason."
+
 def changeEntry(entry, data, user):
     global db
     c=db.cursor()
@@ -94,17 +104,12 @@ def changeEntry(entry, data, user):
         raise Error, "Select is fucked."
     nextversion = c.fetchone()[0]
     if nextversion == None:
-        print "NV is none"
         nextversion = 0
     else:
-        print "NV is ", nextversion
         nextversion = nextversion + 1
-    print "NV is now ", nextversion
     c, rv = safeExecute(c, 'INSERT INTO versions ( name, version, modifier, value, changed ) VALUES ( %s, %s, %s, %s, NOW() )', (entry, nextversion, user, data))
     if rv == 0:
         raise Error, "Versioning is fucked."
-    print "entry is ", entry
-    print "data is ", data
     c, rv = safeExecute(c, 'UPDATE current SET value = %s WHERE name = %s', (data, entry))
     if rv == 0:
         c, rv = safeExecute(c, 'SELECT * FROM current WHERE value = %s AND name = %s', (data,entry))
@@ -145,7 +150,11 @@ def apropos(data, name, value):
 class TestBot(SingleServerIRCBot):
     def __init__(self, channel, nickname, server, port=6667):
         SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
-        self.channel = channel
+        self.channel = channel.split(':')[0]
+        if len(channel.split(':')) > 1:
+            self.channelkey = channel.split(':')[1]
+        else:
+            self.channelkey = ""
         self.lastspoken = itime()
         self.lastsaid = [(("",""),"")]*8
         self.lastsaidupd = 0
@@ -239,8 +248,7 @@ class TestBot(SingleServerIRCBot):
         c.nick(c.get_nickname() + "_")
 
     def on_welcome(self, c, e):
-        #c.join(self.channel, "CalcOps")
-        c.join(self.channel)
+        c.join(self.channel, self.channelkey)
 
     def on_privmsg(self, c, e):
         self.do_command(e)
@@ -391,27 +399,45 @@ def crazyfunk():
 def main():
     import sys
     print len(sys.argv)
-    if len(sys.argv) != 4:
-        print "Usage: testbot <server[:port]> <channel> <nickname>"
+    if len(sys.argv) == 1:
+        print "Usages: testbot run <server[:port]> <channel> <nickname>"
+        print "        testbot load <filename>"
         sys.exit(1)
-        
-    initDb()
-
-    s = string.split(sys.argv[1], ":", 1)
-    server = s[0]
-    if len(s) == 2:
-        try:
-            port = int(s[1])
-        except ValueError:
-            print "Error: Erroneous port."
+    if sys.argv[1] == "run":
+        if len(sys.argv) != 5:
+            print "Usage: testbot <server[:port]> <channel> <nickname>"
             sys.exit(1)
+            
+        initDb()
+    
+        s = string.split(sys.argv[2], ":", 1)
+        server = s[0]
+        if len(s) == 2:
+            try:
+                port = int(s[1])
+            except ValueError:
+                print "Error: Erroneous port."
+                sys.exit(1)
+        else:
+            port = 6667
+        channel = sys.argv[3]
+        nickname = sys.argv[4]
+    
+        bot = TestBot(channel, nickname, server, port)
+        bot.start()
+    elif sys.argv[1] == "load":
+        if len(sys.argv) != 3:
+            print "Missing filename"
+        initDb()
+        input = open(sys.argv[2])
+        for x in input:
+            tok = x.split("::", 3)
+            print "Adding %s: %s" % (tok[1], tok[3])
+            changeEntry(tok[1], tok[3], tok[0])
+            setCount(tok[1], int(tok[2]))
     else:
-        port = 6667
-    channel = sys.argv[2]
-    nickname = sys.argv[3]
-
-    bot = TestBot(channel, nickname, server, port)
-    bot.start()
+        print "Error"
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
