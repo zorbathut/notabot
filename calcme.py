@@ -727,7 +727,7 @@ class TestBot(SingleServerIRCBot):
             if adequatePermission('AUTHORIZE', permlev):
                 self.queueMessage(destination, "AUTHORIZE and higher:", True)
             if adequatePermission('GOD', permlev):
-                self.queueMessage(destination, "GOD and higher: showhost addhost rmhost chperm match", True)
+                self.queueMessage(destination, "GOD and higher: showhost addhost rmhost chperm match rollback", True)
             self.queueMessage(destination, "\"help command\" for detailed help", True)
         elif cmd == "more":
             self.queueCompositeMore(nick, ('privmsg', target))
