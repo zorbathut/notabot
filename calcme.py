@@ -286,30 +286,46 @@ def chperm(user, newperm, source):
             return 1
     else:
         return 1
-
+        
+def getRollbackGoal(timestamp):
+    global db
+    c=db.cursor()
+    c, rv = safeExecute(c, """
+        SELECT name, nvalue FROM (
+            SELECT maxes.name as name, COALESCE(versions.value, "") as nvalue, current.value as ovalue FROM (
+                SELECT name, max(version) as version FROM (
+                    SELECT name, version, changed FROM versions UNION SELECT name, -1, 0 FROM current GROUP BY name
+                ) as vunion WHERE changed <= %s GROUP BY name
+            ) as maxes LEFT JOIN versions ON ( versions.version = maxes.version AND versions.name = maxes.name ), current WHERE current.name = maxes.name
+        ) as monstrosity WHERE nvalue != ovalue""", (timestamp,))
+    if rv == 0:
+        return None
+    return c.fetchall()
     
-    """
-           elif cmd == "rmhost":
-            if len(data) != 2:
-                self.queueMessage(('privmsg', source), 'Usage: rmhost user mask')
-                return
-            rmhost(data[0], data[1], e.source())
-        elif cmd == "addhost":
-            if len(data) != 2:
-                self.queueMessage(('privmsg', source), 'Usage: addhost user mask')
-                return
-            addhost(data[0], data[1], e.source())
-        elif cmd == "chperm":
-            if len(data) != 2:
-                self.queueMessage(('privmsg', source), 'Usage: chperm user [IGNORE|USER|PUBLIC|CHANGE|AUTHORIZE|GOD]')
-                return
-            chperm(data[0], data[1], e.source())"""
+def registerRollback(user, timestamp, length):
+    global db
+    c = db.cursor()
+    c, rv = safeExecute(c, "INSERT INTO rollbackver ( user, time, target, changed ) VALUES ( %s, NOW(), %s, %s )", (user, timestamp, length))
+    if rv == 0:
+        raise Error
 
 def toki(instring):
     out = [instring]
     while ' ' in out[len(out) - 1]:
         out[len(out)-1:] = out[len(out) - 1].strip().split(' ', 1)
     return out
+
+def rollback(timestamp, user, doit = 0):
+    dt = getRollbackGoal(timestamp)
+    if dt == None:
+        return 0
+    if doit == 0:
+        return len(dt)
+    else:
+        print "ROLLING BACK"
+        registerRollback(user, timestamp, len(dt))
+        for key, value in dt:
+            changeEntry(key, value, user)
 
 class TestBot(SingleServerIRCBot):
     def __init__(self, channel, nickname, server, port=6667):
@@ -327,6 +343,7 @@ class TestBot(SingleServerIRCBot):
         self.compositeBuffer = {}
         self.compositeTiming = {}
         self.intendedNickname = nickname
+        self.lastcmd = {}
         
     def updateLastsaid(self):
         print self.lastsaid
@@ -436,14 +453,12 @@ class TestBot(SingleServerIRCBot):
         c.join(self.channel, self.channelkey)
         
     def on_disconnect(self, c, e):
-        print "Disconnected, sleeping"
-        time.sleep(30)
-        print "Dying"
+        print "Disconnected, dying"
         sys.exit(1)
         
     def on_bannedfromchan(self, c, e):
         print "Banned, sleeping"
-        time.sleep(30)
+        time.sleep(10)
         print "Retrying"
         c.join(self.channel, self.channelkey)
         
@@ -458,7 +473,7 @@ class TestBot(SingleServerIRCBot):
         for key in todelete:
             del self.compositeBuffer[key]
         
-    def queueCompositeMessage(self, nick, values, prefix = "found:"):
+    def queueCompositeMessage(self, nick, values, prefix = "found: "):
         if nick in self.compositeBuffer:
             del self.compositeBuffer[nick]
         self.doCompositeCulling()
@@ -487,13 +502,17 @@ class TestBot(SingleServerIRCBot):
             self.queueMessage(target, "Nothing left to display.")
         
     def do_command(self, e):
-        self.recheckNickname()
         global g_startDate, g_changeCount, g_queryCount, g_lastuser
         g_lastuser = e.source()
         #print e.eventtype()
         #print e.source()
         #print e.target()
         #print e.arguments()
+        if e.source() in self.lastcmd:
+            prevcmd = self.lastcmd[e.source()]
+        else:
+            prevcmd = ""
+        self.lastcmd[e.source()] = e.arguments()[0]
         striparg = e.arguments()[0].replace("\x02", "").replace("\x1f", "").replace("\x03", "").replace("\t"," ")
         
         instr = striparg.split(' ', 1)
@@ -537,7 +556,7 @@ class TestBot(SingleServerIRCBot):
                     target = tellparse[0]
                     source = nick
                     entry = tellparse[2]
-        elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match":
+        elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match" or cmd == "rollback":
             if e.eventtype() == "pubmsg":
                 return
             target = nick
@@ -545,7 +564,7 @@ class TestBot(SingleServerIRCBot):
         else:
             return
 
-        if cmd == "calc" or cmd == "status" or cmd == "rmcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2":
+        if cmd == "calc" or cmd == "status" or cmd == "rmcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "rollback":
             if len(instr) == 1 or instr[1] == "":
                 if cmd == "status":
                     entry = ""
@@ -590,7 +609,9 @@ class TestBot(SingleServerIRCBot):
             raise Error, "Shouldn't get here."
             
         entry = entry.lower()
-        
+        if len(entry)>100:
+            entry = entry[0:100]
+        """
         print self.channels
         print self.channels[self.channel]
         print self.channels[self.channel].userdict
@@ -599,9 +620,9 @@ class TestBot(SingleServerIRCBot):
         print nick
         print self.channels[self.channel].operdict.has_key(nick)
         print self.channels[self.channel].is_oper(nick)
+        print permlev"""
         
         permlev = getPermissions(e.source(), nick, self.channels[self.channel])
-        print permlev
         
         if permlev == 'IGNORE':
             return
@@ -626,7 +647,7 @@ class TestBot(SingleServerIRCBot):
             self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")
             return
             
-        if (cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match") and not adequatePermission('GOD', permlev):
+        if (cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match" or cmd == "rollback") and not adequatePermission('GOD', permlev):
             return
             
         if cmd == "calc" or cmd == "tell_calc":
@@ -758,6 +779,14 @@ class TestBot(SingleServerIRCBot):
                 self.queueMessage(('privmsg', source), "No matches")
             else:
                 self.queueMessage(('privmsg', source), "Matches %s" % (matches,))
+        elif cmd == "rollback":
+            if prevcmd != e.arguments()[0]:
+                rt = rollback(entry, e.source(), 0)
+                self.queueMessage(('privmsg', source), "Will roll back %d items. Are you really really really sure? Repeat the command if so." % (rt,))
+            else:
+                print "ROLLBACK AUTHORIZED"
+                rollback(entry, e.source(), 1)
+                self.queueMessage(('privmsg', source), "Done.")
         else:
             raise Error, "Shouldn't get here."
 
