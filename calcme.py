@@ -25,6 +25,7 @@ from irclib import nm_to_n, nm_to_h, irc_lower, ip_numstr_to_quad, ip_quad_to_nu
 import MySQLdb
 import time as time
 import sys as sys
+import traceback as traceback
 
 g_queryCount = 0
 g_changeCount = 0
@@ -33,6 +34,7 @@ g_startDate = 0
 g_username = ""
 g_passwd = ""
 g_dbhost = ""
+g_lastuser = ""
 
 def itime():
     return int(time.time())
@@ -52,6 +54,11 @@ def safeExecute(cursor, string, params):
         cursor=db.cursor()
         rv=cursor.execute(string, params)
         return cursor, rv
+
+def dumpCrashlog(who, what):
+    global db
+    c = db.cursor()
+    c, rv = safeExecute(c, 'INSERT INTO crashlog ( time, who, what ) VALUES ( NOW(), %s, %s )', (who, what))
 
 def getPermissionDict():
     levels = {-1:'IGNORE', 0:'USER', 1:'PUBLIC', 2:'CHANGE', 3:'AUTHORIZE', 4:'GOD'}
@@ -452,7 +459,8 @@ class TestBot(SingleServerIRCBot):
             self.queueMessage(target, "Nothing left to display.")
 
     def do_command(self, e):
-        global g_startDate, g_changeCount, g_queryCount
+        global g_startDate, g_changeCount, g_queryCount, g_lastuser
+        g_lastuser = e.source()
         #print e.eventtype()
         #print e.source()
         #print e.target()
@@ -786,6 +794,16 @@ def main():
     else:
         print "Error"
         sys.exit(1)
+        
+def doBrokenException():
+    exci = traceback.format_exc()
+    print exci
+    global g_lastuser
+    print g_lastuser
+    dumpCrashlog(g_lastuser, exci)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        doBrokenException()
