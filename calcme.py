@@ -117,12 +117,29 @@ def getEntry(entry):
         return ""
     return c.fetchone()[0]
     
+def getVersionedEntry(entry, version):
+    global db
+    c=db.cursor()
+    c, rv = safeExecute(c, 'SELECT value, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
+    if rv == 0:
+        return None, None, None
+    else:
+        return c.fetchone()
+    
 def getCount(entry):
     global db
     c=db.cursor()
     c, rv = safeExecute(c, 'SELECT count FROM current WHERE name = %s', (entry,))
     if rv == 0:
         return 0
+    return c.fetchone()[0]
+    
+def getLastVersion(entry):
+    global db
+    c=db.cursor()
+    c, rv = safeExecute(c, 'SELECT max( version ) FROM versions WHERE name = %s', (entry,))
+    if rv == 0:
+        raise Error
     return c.fetchone()[0]
 
 def incrementCount(entry):
@@ -479,7 +496,7 @@ class TestBot(SingleServerIRCBot):
         
         confused = 0
         
-        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "help" or cmd == "more":
+        if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "help" or cmd == "more" or cmd == "version":
             if e.eventtype() == "pubmsg":
                 target = e.target()
                 source = e.target()
@@ -526,6 +543,9 @@ class TestBot(SingleServerIRCBot):
             else:
                 entry = instr[1]
             data = ""
+        elif cmd == "version":
+            data, entry = instr[1].split(' ', 1)
+            entry = entry.strip()
         elif cmd == "tell_calc":
             pass
         elif cmd == "mkcalc" or cmd == "chcalc":
@@ -612,12 +632,27 @@ class TestBot(SingleServerIRCBot):
                     self.queueMessage(('notice', source), 'sent calc for "%s" to %s' % (entry, target), True)
                 self.queueMessage(('privmsg', target), entry + " = " + data, True)
             incrementCount(entry)
+        elif cmd == "version":
+            entrytext, user, time = getVersionedEntry(entry, data)
+            if entrytext == None:
+                self.queueMessage(('privmsg', target), 'That version does not exist')
+            else:
+                self.queueMessage(('privmsg', target), 'Entry "%s" version %s changed at %s by %s' % (entry, data, time, user), True)
+                if entrytext == "":
+                    self.queueMessage(('privmsg', target), '%s was deleted.' % (entry,), True)
+                else:
+                    self.queueMessage(('privmsg', target), '%s v %s = %s' % (entry, data, entrytext), True)
         elif cmd == "status":
             if entry == "":
                 self.queueMessage(('privmsg', source), 'I have %d entries in my database. There have been %d changes and %d queries since %s.' % (getCalcCount(), g_changeCount, g_queryCount, g_startDate), True)
             else:
                 data = getCount(entry)
-                self.queueMessage(('privmsg', source), '"%s" has been queried %d times.' % (entry, data), True)
+                ver = getLastVersion(entry)
+                if ver == None:
+                    versiondata = ", and has no version history"
+                else:
+                    versiondata = ", and its last version is %d" % ver
+                self.queueMessage(('privmsg', source), '"%s" has been queried %d times%s.' % (entry, data, versiondata), True)
         elif cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc":
             olddata = getEntry(entry)
             if cmd == "rmcalc" and olddata == "":
@@ -714,9 +749,6 @@ class TestBot(SingleServerIRCBot):
         else:
             raise Error, "Shouldn't get here."
 
-def crazyfunk():
-    return 5, 7
-
 def main():
     import sys
     print len(sys.argv)
@@ -795,15 +827,12 @@ def main():
         print "Error"
         sys.exit(1)
         
-def doBrokenException():
-    exci = traceback.format_exc()
-    print exci
-    global g_lastuser
-    print g_lastuser
-    dumpCrashlog(g_lastuser, exci)
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
-        doBrokenException()
+        exci = traceback.format_exc()
+        print exci
+        print g_lastuser
+        dumpCrashlog(g_lastuser, exci)
