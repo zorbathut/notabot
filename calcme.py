@@ -326,6 +326,7 @@ class TestBot(SingleServerIRCBot):
         self.timerRunning = 0
         self.compositeBuffer = {}
         self.compositeTiming = {}
+        self.intendedNickname = nickname
         
     def updateLastsaid(self):
         print self.lastsaid
@@ -390,6 +391,8 @@ class TestBot(SingleServerIRCBot):
                 self.connection.notice(target[1], data)
             elif target[0] == 'privmsg':
                 self.connection.privmsg(target[1], data)
+            else:
+                raise Error
             self.nextspeak = max(self.nextspeak + 2, itime() - 6 + 2)
             if len(self.curtargets):
                 self.dequeueMessage()
@@ -405,15 +408,23 @@ class TestBot(SingleServerIRCBot):
         elif target[0] == 'privmsg':
             self.connection.privmsg(target[1], data)"""
         
-        
+    def recheckNickname(self):
+        print "Rechecking nickname"
+        if self.connection.get_nickname() != self.intendedNickname:
+            self.connection.nick(self.intendedNickname)
 
     def on_nicknameinuse(self, c, e):
-        c.nick(c.get_nickname() + "_")
+        if len(self.channels) == 0:
+            c.nick(c.get_nickname() + "_")
+        else:
+            self.ircobj.execute_delayed(5, self.recheckNickname, ())
 
     def on_welcome(self, c, e):
         global g_startDate
         g_startDate = time.asctime()
         c.join(self.channel, self.channelkey)
+        if c.get_nickname() != self.intendedNickname:
+            self.ircobj.execute_delayed(5, self.recheckNickname, ())
 
     def on_privmsg(self, c, e):
         self.do_command(e)
@@ -474,8 +485,9 @@ class TestBot(SingleServerIRCBot):
                 del self.compositeBuffer[nick]
         else:
             self.queueMessage(target, "Nothing left to display.")
-
+        
     def do_command(self, e):
+        self.recheckNickname()
         global g_startDate, g_changeCount, g_queryCount, g_lastuser
         g_lastuser = e.source()
         #print e.eventtype()
@@ -686,9 +698,9 @@ class TestBot(SingleServerIRCBot):
                 destination = ('privmsg', nick)
             self.queueMessage(destination, "Help for permission level " + permlev, True)
             if adequatePermission('USER', permlev):
-                self.queueMessage(destination, "USER and higher: calc apropos aproposk aproposv status", True)
+                self.queueMessage(destination, "USER and higher: calc apropos aproposk aproposv status version", True)
             if adequatePermission('PUBLIC', permlev):
-                self.queueMessage(destination, "PUBLIC and higher: calc tell", True)
+                self.queueMessage(destination, "PUBLIC and higher: calc tell_calc", True)
             if adequatePermission('CHANGE', permlev):
                 self.queueMessage(destination, "CHANGE and higher: mkcalc rmcalc chcalc", True)
             if adequatePermission('AUTHORIZE', permlev):
