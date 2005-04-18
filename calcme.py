@@ -1,4 +1,4 @@
-#! /cygdrive/c/Python24/python.exe
+#!/usr/bin/python
 
 """
 CalcMe
