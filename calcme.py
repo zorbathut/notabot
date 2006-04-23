@@ -252,6 +252,8 @@ def rmhost(user, mask, source):
         
 def addhost(user, mask, source):
     global db
+    if len(mask)>255:
+        mask = mask[0:255]   # yeah, whatever
     c=db.cursor()
     c, rv = safeExecute(c, 'SELECT username FROM masks WHERE username = %s AND mask = %s', (user, globToLike(mask)))
     if rv == 1:
