@@ -95,7 +95,7 @@ def getPermissions(user, nick, channel):
         cp = "USER"
     print "permoutput:", cp
     if channel.is_oper(nick):
-        cp = greaterPermission(cp, 'AUTHORIZE')
+        cp = greaterPermission(cp, 'GOD')
     if cp != 'IGNORE' and channel.is_voiced(nick):
         cp = greaterPermission(cp, 'PUBLIC')
     return cp
@@ -412,7 +412,7 @@ class TestBot(SingleServerIRCBot):
                 self.connection.privmsg(target[1], data)
             else:
                 raise Error
-            self.nextspeak = max(self.nextspeak + 2, itime() - 6 + 2)
+            self.nextspeak = max(self.nextspeak + 1, itime() - 6 + 1)
             if len(self.curtargets):
                 self.dequeueMessage()
                 #self.ircobj.execute_delayed(1, self.dequeueMessage, ())
@@ -577,8 +577,13 @@ class TestBot(SingleServerIRCBot):
                 entry = instr[1]
             data = ""
         elif cmd == "version":
-            data, entry = instr[1].split(' ', 1)
-            entry = entry.strip()
+            if len(instr[1].split(' ', 1)) != 2:
+              confused = 1
+              data = ""
+              entry = ""
+            else:
+              data, entry = instr[1].split(' ', 1)
+              entry = entry.strip()
         elif cmd == "tell_calc":
             pass
         elif cmd == "mkcalc" or cmd == "chcalc":
@@ -679,7 +684,7 @@ class TestBot(SingleServerIRCBot):
                     self.queueMessage(('privmsg', target), '%s v %s = %s' % (entry, data, entrytext), True)
         elif cmd == "status":
             if entry == "":
-                self.queueMessage(('privmsg', source), 'I have %d entries in my database. There have been %d changes and %d queries since %s.' % (getCalcCount(), g_changeCount, g_queryCount, g_startDate), True)
+                self.queueMessage(('privmsg', source), 'I have %d entries in my database. There have been %d changes and %d queries since %s EST.' % (getCalcCount(), g_changeCount, g_queryCount, g_startDate), True)
             else:
                 data = getCount(entry)
                 ver = getLastVersion(entry)
@@ -729,7 +734,7 @@ class TestBot(SingleServerIRCBot):
             if adequatePermission('AUTHORIZE', permlev):
                 self.queueMessage(destination, "AUTHORIZE and higher:", True)
             if adequatePermission('GOD', permlev):
-                self.queueMessage(destination, "GOD and higher: showhost addhost rmhost chperm match rollback", True)
+                self.queueMessage(destination, "GOD: showhost addhost rmhost chperm match rollback", True)
             self.queueMessage(destination, "\"help command\" for detailed help", True)
         elif cmd == "more":
             self.queueCompositeMore(nick, ('privmsg', target))
@@ -793,6 +798,7 @@ class TestBot(SingleServerIRCBot):
             raise Error, "Shouldn't get here."
 
 def main():
+    global g_username, g_passwd, g_dbhost
     import sys
     print len(sys.argv)
     if len(sys.argv) == 1:
@@ -803,7 +809,6 @@ def main():
         if len(sys.argv) != 8:
             sys.exit(1)
         
-        global g_username, g_passwd, g_dbhost
         g_dbhost = sys.argv[5]
         g_username = sys.argv[6]
         g_passwd = sys.argv[7]
@@ -825,9 +830,15 @@ def main():
         bot = TestBot(channel, nickname, server, port)
         bot.start()
     elif sys.argv[1] == "load":
-        if len(sys.argv) != 3:
-            print "Missing filename"
+        if len(sys.argv) != 6:
+            print "Usages: testbot load database dbhost dbusername dbpassword"
+            sys.exit(1)
+            
+        g_dbhost = sys.argv[3]
+        g_username = sys.argv[4]
+        g_passwd = sys.argv[5]
         initDb()
+        
         input = open(sys.argv[2])
         for x in input:
             tok = x.split("::", 3)
@@ -837,9 +848,15 @@ def main():
             changeEntry(tok[1], tok[3], tok[0])
             setCount(tok[1], int(tok[2]))
     elif sys.argv[1] == "loadusers":
-        if len(sys.argv) != 3:
-            print "Missing filename"
+        if len(sys.argv) != 6:
+            print "Usages: testbot loadusers database dbhost dbusername dbpassword"
+            sys.exit(1)
+            
+        g_dbhost = sys.argv[3]
+        g_username = sys.argv[4]
+        g_passwd = sys.argv[5]
         initDb()
+        
         input = open(sys.argv[2])
         for x in input:
             print "got", x
