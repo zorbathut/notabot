@@ -26,6 +26,7 @@ import MySQLdb
 import time as time
 import sys as sys
 import traceback as traceback
+import re as re
 
 g_queryCount = 0
 g_changeCount = 0
@@ -62,7 +63,7 @@ def dumpCrashlog(who, what):
 
 def getPermissionDict():
     levels = {-1:'IGNORE', 0:'USER', 1:'PUBLIC', 2:'CHANGE', 3:'AUTHORIZE', 4:'GOD'}
-    print [(value, key) for key, value in levels.iteritems()]
+    #print [(value, key) for key, value in levels.iteritems()]
     revlevels = dict([(value, key) for key, value in levels.iteritems()])
     return levels, revlevels
 
@@ -74,7 +75,7 @@ def greaterPermission(lhs, rhs):
     
 def adequatePermission(needed, have):
     levels, revlevels = getPermissionDict()
-    print "got", have, "needed", needed, "result", revlevels[needed] <= revlevels[have]
+    #print "got", have, "needed", needed, "result", revlevels[needed] <= revlevels[have]
     return revlevels[needed] <= revlevels[have]
     
 def getNickPermissions(nick):
@@ -93,7 +94,7 @@ def getPermissions(user, nick, channel):
     cp = c.fetchone()[0]
     if cp == None:
         cp = "USER"
-    print "permoutput:", cp
+    #print "permoutput:", cp
     if channel.is_oper(nick):
         cp = greaterPermission(cp, 'AUTHORIZE')
     if cp != 'IGNORE' and channel.is_voiced(nick):
@@ -154,7 +155,7 @@ def incrementCount(entry):
 def setCount(entry, count):
     global db
     c=db.cursor()
-    print count, entry
+    #print count, entry
     c, rv = safeExecute(c, 'UPDATE current SET count = %s WHERE name = %s', (count,entry))
     if rv == 0:
         c, rv = safeExecute(c, 'SELECT * FROM current WHERE count = %s AND name = %s', (count,entry))
@@ -317,6 +318,7 @@ def toki(instring):
         out[len(out)-1:] = out[len(out) - 1].strip().split(' ', 1)
     return out
 
+""" NO
 def rollback(timestamp, user, doit = 0):
     dt = getRollbackGoal(timestamp)
     if dt == None:
@@ -328,6 +330,7 @@ def rollback(timestamp, user, doit = 0):
         registerRollback(user, timestamp, len(dt))
         for key, value in dt:
             changeEntry(key, value, user)
+"""
 
 class TestBot(SingleServerIRCBot):
     def __init__(self, channel, nickname, server, port=6667):
@@ -348,10 +351,10 @@ class TestBot(SingleServerIRCBot):
         self.lastcmd = {}
         
     def updateLastsaid(self):
-        print self.lastsaid
+        #print self.lastsaid
         while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 15:
             self.lastsaid = self.lastsaid[1:]
-        print self.lastsaid
+        #print self.lastsaid
         
     def queueMessage(self, target, data, cull = False):
         print "queueing ", target, data
@@ -696,6 +699,9 @@ class TestBot(SingleServerIRCBot):
             if cmd == "mkcalc" and olddata != "":
                 self.queueMessage(('privmsg', source), 'I already have an entry for "%s"' % (entry,))
                 return
+            if cmd == "chcalc" and olddata == data:
+                self.queueMessage(('privmsg', source), '"%s" is already equal to that' % (entry,))
+                return
             g_changeCount = g_changeCount + 1
             changeEntry(entry, data, e.source())
             self.queueMessage(('privmsg', target), "Change complete.")
@@ -869,39 +875,56 @@ def main():
             chperm(tok[0], newperm, "loadusers")
         chperm("zorbathut", "GOD", "loadusers")
     elif sys.argv[1] == "replay":
-      class DemoItem:
-        def __init__(self, user, text):
-          self.user = user
-          self.text=text
+        if len(sys.argv) != 6:
+            print "Missing filename"
+        class DemoItem:
+            def __init__(self, user, text):
+                self.user = user
+                self.text=text
           
-        def source(self):
-          return self.user
+            def source(self):
+                return self.user
         
-        def arguments(self):
-          return [self.text]
+            def arguments(self):
+                return [self.text]
           
-        def eventtype(self):
-          return "pubmsg"
+            def eventtype(self):
+                return "pubmsg"
         
-        def target(self):
-          return "#c++"
+            def target(self):
+                return "#c++"
       
-      class DemoChannel:
-        def is_oper(self, nick):
-          return True
+        class DemoChannel:
+            def is_oper(self, nick):
+                return True
         
-        def is_voiced(self, nick):
-          return True
+            def is_voiced(self, nick):
+                return True
       
-      def echo_privmsg(target, data):
-        print target + ": " + data
+        def echo_privmsg(target, data):
+            print target + ": " + data
       
-      bot = TestBot("", "CalcBot", "", 0)
-      bot.channel = 0
-      bot.channels = [DemoChannel()]
-      bot.connection.privmsg = echo_privmsg
-      
-      bot.do_command(DemoItem("ZorbaTHut", "calc hi"))
+        bot = TestBot("", "CalcBot", "", 0)
+        bot.channel = 0
+        bot.channels = [DemoChannel()]
+        bot.connection.privmsg = echo_privmsg
+        
+        fil = open(sys.argv[5], "r")
+        for line in fil:
+            if line == "":
+                continue
+            if line[0:4] == "****":
+                continue
+            match = re.match(".{3} [0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} ([^\t]*)\t(.*)", line)
+            if match == None:
+                print "FAILURE: " + line
+                continue
+            if match.group(1) == "*":
+                continue
+            #print match.group(1)
+            #print match.group(2)
+            bot.do_command(DemoItem(match.group(1) + " (logged)", match.group(2)))
+        fil.close()
       
     else:
         print "Error"
