@@ -351,7 +351,6 @@ class TestBot(SingleServerIRCBot):
     self.compositeBuffer = {}
     self.compositeTiming = {}
     self.intendedNickname = nickname
-    self.lastcmd = {}
     
   def updateLastsaid(self):
     #print self.lastsaid
@@ -522,11 +521,6 @@ class TestBot(SingleServerIRCBot):
     #print e.source()
     #print e.target()
     #print e.arguments()
-    if e.source() in self.lastcmd:
-      prevcmd = self.lastcmd[e.source()]
-    else:
-      prevcmd = ""
-    self.lastcmd[e.source()] = e.arguments()[0]
     striparg = e.arguments()[0].replace("\x02", "").replace("\x1f", "").replace("\x03", "").replace("\t"," ")
     
     instr = striparg.split(' ', 1)
@@ -570,7 +564,7 @@ class TestBot(SingleServerIRCBot):
           target = tellparse[0]
           source = nick
           entry = tellparse[2]
-    elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match" or cmd == "rollback":
+    elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match":
       if e.eventtype() == "pubmsg":
         return
       target = nick
@@ -578,7 +572,7 @@ class TestBot(SingleServerIRCBot):
     else:
       return
 
-    if cmd == "calc" or cmd == "status" or cmd == "rmcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "rollback":
+    if cmd == "calc" or cmd == "status" or cmd == "rmcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2":
       if len(instr) == 1 or instr[1] == "":
         if cmd == "status":
           entry = ""
@@ -666,7 +660,7 @@ class TestBot(SingleServerIRCBot):
       self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")
       return
       
-    if (cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match" or cmd == "rollback") and not adequatePermission('GOD', permlev):
+    if (cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match") and not adequatePermission('GOD', permlev):
       return
       
     if cmd == "calc" or cmd == "tell_calc":
@@ -749,7 +743,7 @@ class TestBot(SingleServerIRCBot):
       if adequatePermission('AUTHORIZE', permlev):
         self.queueMessage(destination, "AUTHORIZE and higher:", True)
       if adequatePermission('GOD', permlev):
-        self.queueMessage(destination, "GOD and higher: showhost addhost rmhost chperm match rollback", True)
+        self.queueMessage(destination, "GOD and higher: showhost addhost rmhost chperm match", True)
       self.queueMessage(destination, "\"help command\" for detailed help", True)
     elif cmd == "more":
       self.queueCompositeMore(nick, ('privmsg', target))
@@ -801,14 +795,6 @@ class TestBot(SingleServerIRCBot):
         self.queueMessage(('privmsg', source), "No matches")
       else:
         self.queueMessage(('privmsg', source), "Matches %s" % (matches,))
-    elif cmd == "rollback":
-      if prevcmd != e.arguments()[0]:
-        rt = rollback(entry, e.source(), 0)
-        self.queueMessage(('privmsg', source), "Will roll back %d items. Are you really really really sure? Repeat the command if so." % (rt,))
-      else:
-        print "ROLLBACK AUTHORIZED"
-        rollback(entry, e.source(), 1)
-        self.queueMessage(('privmsg', source), "Done.")
     else:
       raise Error, "Shouldn't get here."
 
