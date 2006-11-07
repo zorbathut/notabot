@@ -921,9 +921,18 @@ def main():
         continue
       if match.group(1) == "*":
         continue
-      #print match.group(1)
-      #print match.group(2)
-      bot.do_command(DemoItem(match.group(1) + " (logged)", match.group(2)))
+      if match.group(1) == "CalcMe":
+        ubermatch = re.match("([^ ]* ?[^ ]*) = (.*)", match.group(2))
+        if ubermatch == None:
+          print "Calcme failure: " + match.group(2)
+          continue
+        #print ubermatch.group(1)
+        #print ubermatch.group(2)
+        bot.do_command(DemoItem("unknown (intercepted)", "chcalc %s = %s" % (ubermatch.group(1), ubermatch.group(2))))
+      else:
+        #print match.group(1)
+        #print match.group(2)
+        bot.do_command(DemoItem(match.group(1) + " (logged)", match.group(2)))
     fil.close()
     
   else:
