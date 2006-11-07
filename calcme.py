@@ -336,6 +336,7 @@ def rollback(timestamp, user, doit = 0):
 
 class TestBot(SingleServerIRCBot):
   def __init__(self, channel, nickname, server, port=6667):
+    self.lastnick = nickname
     SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
     self.channel = channel.split(':')[0]
     if len(channel.split(':')) > 1:
@@ -439,7 +440,12 @@ class TestBot(SingleServerIRCBot):
 
   def on_nicknameinuse(self, c, e):
     if len(self.channels) == 0:
-      c.nick(c.get_nickname() + "_")
+      if self.lastnick == "CalcMe":
+        self.lastnick = "CaulkMe"
+      else:
+        self.lastnick = self.lastnick + "_"
+      print "Changing nick to " + self.lastnick
+      c.nick(self.lastnick)
     else:
       self.ircobj.execute_delayed(5, self.recheckNickname, ())
 
