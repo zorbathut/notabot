@@ -833,25 +833,23 @@ def main():
     bot = TestBot(channel, nickname, server, port)
     bot.start()
   elif sys.argv[1] == "load":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 6:
       print "Missing filename"
-    initDb()
-    input = open(sys.argv[2])
+    input = open(sys.argv[5])
     for x in input:
       tok = x.split("::", 3)
       if tok == ["\n"]:
         break
       print "Adding %s: %s" % (tok[1], tok[3])
-      changeEntry(tok[1], tok[3], tok[0])
+      changeEntry(tok[1], tok[3], tok[0] + " (factoid.db)")
       setCount(tok[1], int(tok[2]))
   elif sys.argv[1] == "loadusers":
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 6:
       print "Missing filename"
-    initDb()
-    input = open(sys.argv[2])
+    input = open(sys.argv[5])
     for x in input:
-      print "got", x
-      if x[0] == '#' or x[0] == '\n':
+      print "got " + x
+      if x[0] == '#' or x[0] == '\r' or x[0] == '\n':
         continue
       tok = toki(x)
       if len(tok) != 3:
@@ -928,11 +926,11 @@ def main():
           continue
         #print ubermatch.group(1)
         #print ubermatch.group(2)
-        bot.do_command(DemoItem("unknown (intercepted)", "chcalc %s = %s" % (ubermatch.group(1), ubermatch.group(2))))
+        bot.do_command(DemoItem("unknown (channel log intercept)", "chcalc %s = %s" % (ubermatch.group(1), ubermatch.group(2))))
       else:
         #print match.group(1)
         #print match.group(2)
-        bot.do_command(DemoItem(match.group(1) + " (logged)", match.group(2)))
+        bot.do_command(DemoItem(match.group(1) + " (channel log replay)", match.group(2)))
     fil.close()
     
   else:
