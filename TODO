@@ -1,3 +1,6 @@
 - Remove rollback
+- Lock down chperm to GOD
 - Is "current" NULL allowed?
-- Figure out details of all the tables
+- Figure out details of all the tables, document better
+- Regexp matching
+- %%%BRAG%%%
