@@ -5,6 +5,7 @@ CREATE TABLE `crashlog` (
   `time` timestamp NOT NULL default CURRENT_TIMESTAMP on update
     CURRENT_TIMESTAMP,
   `who` varchar(100) NOT NULL default '',
+  `command` text NOT NULL,
   `what` text NOT NULL
 );
 

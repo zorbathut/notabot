@@ -35,7 +35,9 @@ g_startDate = 0
 g_username = ""
 g_passwd = ""
 g_dbhost = ""
+
 g_lastuser = ""
+g_lastcommand = ""
 
 def itime():
   return int(time.time())
@@ -56,10 +58,10 @@ def safeExecute(cursor, string, params):
     rv=cursor.execute(string, params)
     return cursor, rv
 
-def dumpCrashlog(who, what):
+def dumpCrashlog(who, what, command):
   global db
   c = db.cursor()
-  c, rv = safeExecute(c, 'INSERT INTO crashlog ( time, who, what ) VALUES ( NOW(), %s, %s )', (who, what))
+  c, rv = safeExecute(c, 'INSERT INTO crashlog ( time, who, command, what ) VALUES ( NOW(), %s, %s, %s )', (who, command, what))
 
 def getPermissionDict():
   levels = {-1:'IGNORE', 0:'USER', 1:'PUBLIC', 2:'CHANGE', 3:'AUTHORIZE', 4:'GOD'}
@@ -357,7 +359,7 @@ class TestBot(SingleServerIRCBot):
     #print self.lastsaid
     
   def queueMessage(self, target, data, cull = False):
-    print "queueing ", target, data
+    #print "queueing ", target, data
     self.updateLastsaid()
     if not self.curtargets.has_key(target):
       self.curtargets[target] = []
@@ -507,8 +509,9 @@ class TestBot(SingleServerIRCBot):
       self.queueMessage(target, "Nothing left to display.")
     
   def do_command(self, e):
-    global g_startDate, g_changeCount, g_queryCount, g_lastuser
+    global g_startDate, g_changeCount, g_queryCount, g_lastuser, g_lastcommand
     g_lastuser = e.source()
+    g_lastcommand = e.arguments()[0]
     #print e.eventtype()
     #print e.source()
     #print e.target()
@@ -580,8 +583,13 @@ class TestBot(SingleServerIRCBot):
         entry = instr[1]
       data = ""
     elif cmd == "version":
-      data, entry = instr[1].split(' ', 1)
-      entry = entry.strip()
+      if len(instr) == 1 or len(instr[1].split(' ', 1)) != 2:
+        confused = 1
+        entry = ""
+        data = ""
+      else:
+        data, entry = instr[1].split(' ', 1)
+        entry = entry.strip()
     elif cmd == "tell_calc":
       pass
     elif cmd == "mkcalc" or cmd == "chcalc":
@@ -908,8 +916,15 @@ def main():
     bot.connection.privmsg = echo_privmsg
     
     fil = open(sys.argv[5], "r")
+    ct = 0
     for line in fil:
+      if ct == 10000:
+        print fil.tell() / 144022069.0
+        ct = 0
+      ct = ct + 1
       if line == "":
+        continue
+      if line[0] == '\r' or line[0] == '\n':
         continue
       if line[0:4] == "****":
         continue
@@ -922,7 +937,7 @@ def main():
       if match.group(1) == "CalcMe":
         ubermatch = re.match("([^ ]* ?[^ ]*) = (.*)", match.group(2))
         if ubermatch == None:
-          print "Calcme failure: " + match.group(2)
+          #print "Calcme failure: " + match.group(2)
           continue
         #print ubermatch.group(1)
         #print ubermatch.group(2)
@@ -945,4 +960,4 @@ if __name__ == "__main__":
     exci = traceback.format_exc()
     print exci
     print g_lastuser
-    dumpCrashlog(g_lastuser, exci)
+    dumpCrashlog(g_lastuser, exci, g_lastcommand)
