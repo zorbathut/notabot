@@ -291,48 +291,12 @@ def chperm(user, newperm, source):
       return 1
   else:
     return 1
-    
-def getRollbackGoal(timestamp):
-  global db
-  c=db.cursor()
-  c, rv = safeExecute(c, """
-    SELECT name, nvalue FROM (
-      SELECT maxes.name as name, COALESCE(versions.value, "") as nvalue, current.value as ovalue FROM (
-        SELECT name, max(version) as version FROM (
-          SELECT name, version, changed FROM versions UNION SELECT name, -1, 0 FROM current GROUP BY name
-        ) as vunion WHERE changed <= %s GROUP BY name
-      ) as maxes LEFT JOIN versions ON ( versions.version = maxes.version AND versions.name = maxes.name ), current WHERE current.name = maxes.name
-    ) as monstrosity WHERE nvalue != ovalue""", (timestamp,))
-  if rv == 0:
-    return None
-  return c.fetchall()
-  
-def registerRollback(user, timestamp, length):
-  global db
-  c = db.cursor()
-  c, rv = safeExecute(c, "INSERT INTO rollbackver ( user, time, target, changed ) VALUES ( %s, NOW(), %s, %s )", (user, timestamp, length))
-  if rv == 0:
-    raise Error
 
 def toki(instring):
   out = [instring]
   while ' ' in out[len(out) - 1]:
     out[len(out)-1:] = out[len(out) - 1].strip().split(' ', 1)
   return out
-
-""" NO
-def rollback(timestamp, user, doit = 0):
-  dt = getRollbackGoal(timestamp)
-  if dt == None:
-    return 0
-  if doit == 0:
-    return len(dt)
-  else:
-    print "ROLLING BACK"
-    registerRollback(user, timestamp, len(dt))
-    for key, value in dt:
-      changeEntry(key, value, user)
-"""
 
 class TestBot(SingleServerIRCBot):
   def __init__(self, channel, nickname, server, port=6667):
