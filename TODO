@@ -1,0 +1,3 @@
+- Remove rollback
+- Is "current" NULL allowed?
+- Figure out details of all the tables

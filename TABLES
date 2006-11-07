@@ -1,0 +1,55 @@
+-- Table schema
+
+-- Logs crashes. Text is the exception text, who is the last user, time is the timestamp.
+CREATE TABLE `crashlog` (
+  `time` timestamp NOT NULL default CURRENT_TIMESTAMP on update
+    CURRENT_TIMESTAMP,
+  `who` varchar(100) NOT NULL default '',
+  `what` text NOT NULL
+);
+
+-- current values for the factoid database, plus number of times read
+CREATE TABLE `current` (
+  `name` varchar(100) NOT NULL default '',
+  `value` text NOT NULL,
+  `count` int(11) NOT NULL default '0',
+  PRIMARY KEY  (`name`)
+);
+
+-- TODO: figure out what exactly this is
+CREATE TABLE `masks` (
+  `origmask` varchar(100) NOT NULL default '',
+  `username` varchar(100) NOT NULL default '',
+  `mask` varchar(255) NOT NULL default '',
+  PRIMARY KEY  (`username`,`mask`)
+);
+
+-- users and permissions (user is identified via the masks table)
+CREATE TABLE `users` (
+  `username` char(100) NOT NULL default '',
+  `permlev` enum('IGNORE','USER','PUBLIC','CHANGE','AUTHORIZE','GOD') NOT NULL
+    default 'USER',
+  PRIMARY KEY  (`username`)
+);
+
+-- records changes to the user table
+CREATE TABLE `userver` (
+  `time` timestamp NOT NULL default CURRENT_TIMESTAMP on update
+    CURRENT_TIMESTAMP,
+  `modifier` varchar(100) NOT NULL default '',
+  `command` varchar(100) NOT NULL default '',
+  `target` varchar(100) NOT NULL default '',
+  `data` varchar(255) NOT NULL default ''
+);
+
+-- records factoid changes
+CREATE TABLE `versions` (
+  `name` varchar(100) NOT NULL default '',
+  `version` int(11) NOT NULL default '0',
+  `modifier` varchar(255) NOT NULL default '',  -- hostmask making the change
+  `changed` timestamp NOT NULL default CURRENT_TIMESTAMP on update
+    CURRENT_TIMESTAMP,
+  `value` text NOT NULL,
+  PRIMARY KEY  (`name`,`version`)
+); 
+
