@@ -404,7 +404,7 @@ class TestBot(SingleServerIRCBot):
   def on_nicknameinuse(self, c, e):
     if len(self.channels) == 0:
       if self.lastnick == "CalcMe":
-        self.lastnick = "CaulkMe"
+        self.lastnick = "CalcBot"
       else:
         self.lastnick = self.lastnick + "_"
       print "Changing nick to " + self.lastnick
