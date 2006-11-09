@@ -1,4 +1,8 @@
-- Remove rollback
+- "more blah blah blah blah" no trigger
+- If you send it garbage in msg, it should trigger confused
+- "version blah blah blah" no trigger
+- Better feedback for "change complete"
+- calc linking?
 - Lock down chperm to GOD
 - Is "current" NULL allowed?
 - Figure out details of all the tables, document better
