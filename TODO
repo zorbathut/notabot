@@ -1,10 +1,21 @@
-- "more blah blah blah blah" no trigger
-- If you send it garbage in msg, it should trigger confused
-- "version blah blah blah" no trigger
+---- Main path
+- New parsing system
+  - Regexp matching
+  - "more blah blah blah blah" no trigger
+  - If you send it garbage in msg, it should trigger confused
+  - "version blah blah blah" no trigger
+  - change showhost to whois
+  - "addhost host" default to user
+- rmhost for own user (and, obviously, whois for own user)
+- rmuser
 - Better feedback for "change complete"
+- config file
+  - change ticker?
 - calc linking?
 - Lock down chperm to GOD
 - Is "current" NULL allowed?
 - Figure out details of all the tables, document better
-- Regexp matching
+
+---- Is this ever needed?
+- chversion?
 - %%%BRAG%%%
