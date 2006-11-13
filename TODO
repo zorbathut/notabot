@@ -15,7 +15,36 @@
 - Lock down chperm to GOD
 - Is "current" NULL allowed?
 - Figure out details of all the tables, document better
+- PHP interface
 
 ---- Is this ever needed?
 - chversion?
 - %%%BRAG%%%
+
+
+
+
+------ Notes on new parsing and capabilities
+USER can't ever talk in public - trying to use a command in public (that they have perms for) sends the standard "hay go talk in msg dudez" reply
+
+calc <key>
+apropos <text>
+aproposk <text>
+aproposv <text>
+status [<key>]
+help [<command>]
+more
+version <version> <key> (in public, show nick - otherwise, show hostmask)
+owncalc <key>
+(PUBLIC only)
+tell <user> <key> (ignore unless user_in_channel or sent_in_message)
+(CHANGE only)
+mkcalc <key> = <value>
+rmcalc <key>
+chcalc <key> = <value>
+(GOD only)
+addhost <user> <hostmask>
+rmhost <user> <hostmask>
+whois <user>
+chperm <user> <level>
+match <hostmask>

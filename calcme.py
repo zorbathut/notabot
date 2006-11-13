@@ -804,6 +804,7 @@ def main():
       tok = x.split("::", 3)
       if tok == ["\n"]:
         break
+      tok[3] = tok[3].strip()   # this line hasn't been tested, so if it crashes here, fix it - it should remove whitespace so we don't pollute the DB with trailing \r\n pairs
       print "Adding %s: %s" % (tok[1], tok[3])
       changeEntry(tok[1], tok[3], tok[0] + " (factoid.db)")
       setCount(tok[1], int(tok[2]))
