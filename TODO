@@ -29,7 +29,7 @@
 USER can't ever talk in public - trying to use a command in public (that they have perms for) sends the standard "hay go talk in msg dudez" reply
 
 values:
-context - where was the command sent?
+target - where was the command sent?
 user_host - what is the hostmask of the user?
 user_nick - what is the nick of the user?
 permission - what permission level does the user have?

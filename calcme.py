@@ -302,9 +302,36 @@ def toki(instring):
 class TestBot(SingleServerIRCBot):
   class ParseModule:
     def __init__(self, permissions, pattern, function, visible = True, confused_help = True):
-      self.permissions = permissions;
-      self.pattern = pattern;
-      self.function = function;
+      self.permissions = permissions
+      self.function = function
+      self.confused_help = confused_help
+      self.visible = visible
+      
+      # The replacement for [] is kind of grim. The rest is okay. Should be a table, really, for replacements, but it isn't right now.
+      processedpattern = pattern.replace(" ", "\s*").replace("[", "").replace("]", "?").replace("<key>", "(?P<key>[^=]+)").replace("<text>", "(?P<text>.+)").replace("<command>", "(?P<command>\w+)").replace("<version>", "(?P<version>\d+)").replace("<user>", "(?P<user>[^\s]+)").replace("<value>", "(?P<value>.*)").replace("<hostmask>", "(?P<hostmask>[^\s]+)").replace("<level>", "(?P<level>[\w]+)")
+      print pattern
+      print processedpattern
+      
+      self.regex = re.compile(processedpattern)
+    
+    def parseAndDispatch(self, arguments, context):
+      print arguments, context
+      result = self.regex.match(arguments)
+      
+      if result == None:
+        if self.confused_help:
+          return self.command_confused(**context)
+        else:
+          return []
+      else:
+        print result.groupdict()
+        for key,value in result.groupdict().iteritems():
+          if key in context:
+            raise Error
+          elif value != None:
+            context[key] = value
+        print "Calling", self.function, "with", context
+        return self.function(**context)
     
   def __init__(self, channel, nickname, server, port=6667):
     self.lastnick = nickname
@@ -606,19 +633,23 @@ class TestBot(SingleServerIRCBot):
       print "No command for", command
       return
     
-    permissions, username = getPermissions(user_host, self.channels[self.channel])
+    permission, user_nick = getPermissions(user_host, self.channels[self.channel])
     
-    print command, arguments, target, user_host, permissions, username
+    print command, arguments, target, user_host, permission, user_nick
     
-    if permissions == "IGNORE":
+    if permission == "IGNORE":
       return
+      
+    context = { "target": target, "user_host": user_host, "user_nick": user_nick, "permission": permission }
     
     if not self.lookuptable.has_key(command):
-      result = command_confused(context)
-    elif target != "privmsg" and permissions == "USER":
-      result = command_msgnotify(context)
+      result = self.command_confused(context)
+    elif target != "privmsg" and permission == "USER":
+      result = self.command_msgnotify(context)  # USER may never do things in public
+    elif target != "privmsg" and self.lookuptable[command].permission == "GOD":
+      return  # GOD-level commands are msg-only
     else:
-      result = []
+      result = self.lookuptable[command].parseAndDispatch(arguments, context)
     
     print result
     
