@@ -89,19 +89,20 @@ def getNickPermissions(nick):
   else:
     return c.fetchone()[0]
 
-def getPermissions(user, nick, channel):
+def getPermissions(user_host, channel):
   global db
   c=db.cursor()
-  c, rv = safeExecute(c, 'SELECT max(users.permlev) FROM users, masks WHERE users.username = masks.username AND %s LIKE masks.mask', (user,))
-  cp = c.fetchone()[0]
-  if cp == None:
-    cp = "USER"
-  #print "permoutput:", cp
+  c, rv = safeExecute(c, 'SELECT max(users.permlev), min(users.username) FROM users, masks WHERE users.username = masks.username AND %s LIKE masks.mask', (user_host,)) # Why min? Because there might technically be multiple matches, and this makes things less likely to be blamed on me. (There probably shouldn't be multiple matches. Todo: rig things to notify someone if there are multiple matches)
+  perm, username = c.fetchone()
+  nick = nm_to_n(user_host)
+  if perm == None:
+    perm = "USER"
+    username = nick
   if channel.is_oper(nick):
-    cp = greaterPermission(cp, 'AUTHORIZE')
-  if cp != 'IGNORE' and channel.is_voiced(nick):
-    cp = greaterPermission(cp, 'PUBLIC')
-  return cp
+    perm = greaterPermission(perm, 'AUTHORIZE')
+  if perm != 'IGNORE' and channel.is_voiced(nick):
+    perm = greaterPermission(perm, 'PUBLIC')
+  return perm, username
 
 def getMatch(user):
   global db
@@ -299,6 +300,12 @@ def toki(instring):
   return out
 
 class TestBot(SingleServerIRCBot):
+  class ParseModule:
+    def __init__(self, permissions, pattern, function, visible = True, confused_help = True):
+      self.permissions = permissions;
+      self.pattern = pattern;
+      self.function = function;
+    
   def __init__(self, channel, nickname, server, port=6667):
     self.lastnick = nickname
     SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
@@ -316,6 +323,94 @@ class TestBot(SingleServerIRCBot):
     self.compositeTiming = {}
     self.intendedNickname = nickname
     
+    self.lookuptable = {
+        "calc": self.ParseModule("USER", "<key>", self.command_calc),
+        "apropos": self.ParseModule("USER", "<text>", self.command_apropos),
+        "aproposk": self.ParseModule("USER", "<text>", self.command_aproposk),
+        "aproposv": self.ParseModule("USER", "<text>", self.command_aproposv),
+        "apropos2": self.ParseModule("USER", "[<text>]", self.command_apropos2, visible = False), # error only
+        "status": self.ParseModule("USER", "[<key>]", self.command_status),
+        "help": self.ParseModule("USER", "[<command>]", self.command_help, confused_help = False),
+        "more": self.ParseModule("USER", "", self.command_more, confused_help = False),
+        "version": self.ParseModule("USER", "<version> <key>", self.command_version, confused_help = False),
+        "owncalc": self.ParseModule("USER", "<key>", self.command_owncalc),
+        
+        "tell": self.ParseModule("PUBLIC", "<user> <key>", self.command_tell),
+        
+        "mkcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_mkcalc),
+        "rmcalc": self.ParseModule("CHANGE", "<key>", self.command_rmcalc),
+        "chcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_chcalc),
+        
+        "whois": self.ParseModule("GOD", "<user>", self.command_whois),
+        "match": self.ParseModule("GOD", "<hostmask>", self.command_match),
+        "addhost": self.ParseModule("GOD", "<user> <hostmask>", self.command_addhost),
+        "rmhost": self.ParseModule("GOD", "<user> <hostmask>", self.command_rmhost),
+        "chperm": self.ParseModule("GOD", "<user> <level>", self.command_chperm),
+      }
+  
+  def command_confused(self, **kwargs):
+    pass
+  
+  def command_msgnotify(self, **kwargs):
+    pass
+  
+  def command_calc(self, key, **kwargs):
+    pass
+  
+  def command_apropos(self, text, **kwargs):
+    pass
+  
+  def command_aproposk(self, text, **kwargs):
+    pass
+  
+  def command_aproposv(self, text, **kwargs):
+    pass
+  
+  def command_apropos2(self, **kwargs):
+    pass
+  
+  def command_status(self, key = None, **kwargs):
+    pass
+  
+  def command_help(self, command = None, **kwargs):
+    pass
+  
+  def command_more(self, **kwargs):
+    pass
+  
+  def command_version(self, version, key, **kwargs):
+    pass
+  
+  def command_owncalc(self, key, **kwargs):
+    pass
+  
+  def command_tell(self, user, key, **kwargs):
+    pass
+  
+  def command_mkcalc(self, key, value, user_host, user_nick, **kwargs):
+    pass
+  
+  def command_rmcalc(self, key, user_host, user_nick, **kwargs):
+    pass
+  
+  def command_chcalc(self, key, value, user_host, user_nick, **kwargs):
+    pass
+  
+  def command_whois(self, user, **kwargs):
+    pass
+  
+  def command_match(self, user, **kwargs):
+    pass
+  
+  def command_addhost(self, user, **kwargs):
+    pass
+  
+  def command_rmhost(self, user, **kwargs):
+    pass
+  
+  def command_chperm(self, user, **kwargs):
+    pass
+  
   def updateLastsaid(self):
     #print self.lastsaid
     while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 15:
@@ -485,12 +580,49 @@ class TestBot(SingleServerIRCBot):
     #print e.source()
     #print e.target()
     #print e.arguments()
-    striparg = e.arguments()[0].replace("\x02", "").replace("\x1f", "").replace("\x03", "").replace("\t"," ")
     
-    instr = striparg.split(' ', 1)
-    cmd = instr[0]
-    if len(instr) > 1:
-      instr[1] = instr[1].strip()
+    if e.eventtype() != "pubmsg" and e.eventtype() != "privmsg":
+      print "Unknown message type", e.eventtype() # TODO: /msg Zorba
+    
+    # Remove control characters
+    sanitized = re.sub('[\x00-\x1f]','',e.arguments()[0])
+    
+    if len(sanitized.split(' ', 1)) == 1:
+      command = sanitized
+      arguments = ""
+    else:
+      command, arguments = sanitized.split(' ', 1)
+    
+    arguments = arguments.strip()
+    
+    if e.eventtype() == "privmsg":
+      target = "privmsg"
+    else:
+      target = e.target()
+    
+    user_host = e.source()
+    
+    if not self.lookuptable.has_key(command) and target != "privmsg":
+      print "No command for", command
+      return
+    
+    permissions, username = getPermissions(user_host, self.channels[self.channel])
+    
+    print command, arguments, target, user_host, permissions, username
+    
+    if permissions == "IGNORE":
+      return
+    
+    if not self.lookuptable.has_key(command):
+      result = command_confused(context)
+    elif target != "privmsg" and permissions == "USER":
+      result = command_msgnotify(context)
+    else:
+      result = []
+    
+    print result
+    
+    return
     
     nick = nm_to_n(e.source())
     c = self.connection
@@ -913,6 +1045,9 @@ def main():
 if __name__ == "__main__":
   try:
     main()
+  except KeyboardInterrupt:
+    print "Interrupted, shutting down"
+    sys.exit(0)
   except Exception:
     exci = traceback.format_exc()
     print exci

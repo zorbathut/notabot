@@ -48,6 +48,7 @@ CREATE TABLE `versions` (
   `name` varchar(100) NOT NULL default '',
   `version` int(11) NOT NULL default '0',
   `modifier` varchar(255) NOT NULL default '',  -- hostmask making the change
+  `username` varchar(100) NOT NULL default '', -- the username associated with that hostmask, or nickname
   `changed` timestamp NOT NULL default CURRENT_TIMESTAMP on update
     CURRENT_TIMESTAMP,
   `value` text NOT NULL,
