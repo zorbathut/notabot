@@ -308,7 +308,7 @@ class TestBot(SingleServerIRCBot):
       self.visible = visible
       
       # The replacement for [] is kind of grim. The rest is okay. Should be a table, really, for replacements, but it isn't right now.
-      processedpattern = pattern.replace(" ", "\s*").replace("[", "").replace("]", "?").replace("<key>", "(?P<key>[^=]+)").replace("<text>", "(?P<text>.+)").replace("<command>", "(?P<command>\w+)").replace("<version>", "(?P<version>\d+)").replace("<user>", "(?P<user>[^\s]+)").replace("<value>", "(?P<value>.*)").replace("<hostmask>", "(?P<hostmask>[^\s]+)").replace("<level>", "(?P<level>[\w]+)")
+      processedpattern = pattern.replace(" ", "\s*").replace("[", "").replace("]", "?").replace("<key>", "(?P<key>[^=]{1,255})").replace("<text>", "(?P<text>.+)").replace("<command>", "(?P<command>\w+)").replace("<version>", "(?P<version>\d{1,10})").replace("<user>", "(?P<user>[^\s]{1,255})").replace("<value>", "(?P<value>.*)").replace("<hostmask>", "(?P<hostmask>[^\s]{1,255})").replace("<level>", "(?P<level>[\w]+)")
       print pattern
       print processedpattern
       
