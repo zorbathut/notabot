@@ -301,8 +301,8 @@ def toki(instring):
 
 class TestBot(SingleServerIRCBot):
   class ParseModule:
-    def __init__(self, permissions, pattern, function, visible = True, confused_help = True):
-      self.permissions = permissions
+    def __init__(self, permission, pattern, function, visible = True, confused_help = True):
+      self.permission = permission
       self.function = function
       self.confused_help = confused_help
       self.visible = visible
@@ -314,13 +314,16 @@ class TestBot(SingleServerIRCBot):
       
       self.regex = re.compile(processedpattern)
     
+    def setConfused(self, confused):
+      self.confused = confused
+    
     def parseAndDispatch(self, arguments, context):
       print arguments, context
       result = self.regex.match(arguments)
       
       if result == None:
         if self.confused_help:
-          return self.command_confused(**context)
+          return self.confused(**context)
         else:
           return []
       else:
@@ -374,12 +377,32 @@ class TestBot(SingleServerIRCBot):
         "rmhost": self.ParseModule("GOD", "<user> <hostmask>", self.command_rmhost),
         "chperm": self.ParseModule("GOD", "<user> <level>", self.command_chperm),
       }
+    
+    for value in self.lookuptable.itervalues():
+      value.setConfused(self.command_confused)
+    
+  class NotifySender:
+    def __init__(self, text):
+      self.text = text
+    
+    def dispatch(self, bot, user_nick, **kwargs):
+      bot.queueMessage(('notice', user_nick), self.text)
+  
+  class MsgTarget:
+    def __init__(self, text):
+      self.text = text
+    
+    def dispatch(self, bot, target, **kwargs):
+      bot.queueMessage(('privmsg', target), self.text)
   
   def command_confused(self, **kwargs):
-    pass
+    return [self.NotifySender("Confused? \"/msg %s help <command>\" for docs." % self.connection.get_nickname())]
   
   def command_msgnotify(self, **kwargs):
-    pass
+    return [self.NotifySender("Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")]
+  
+  def command_noauth(self, **kwargs):
+    return [self.NotifySender("You don't have the permissions needed to do that. If you should, fix your hostmask, ask an op to update your host, or op yourself.")]
   
   def command_calc(self, key, **kwargs):
     pass
@@ -396,7 +419,7 @@ class TestBot(SingleServerIRCBot):
   def command_apropos2(self, **kwargs):
     pass
   
-  def command_status(self, key = None, **kwargs):
+  def command_status(self, target, key = None, **kwargs):
     pass
   
   def command_help(self, command = None, **kwargs):
@@ -510,13 +533,6 @@ class TestBot(SingleServerIRCBot):
       else:
         self.timerRunning = 0
       return
-
-      
-    """
-      if target[0] == 'notice':
-      self.connection.notice(target[1], data)
-    elif target[0] == 'privmsg':
-      self.connection.privmsg(target[1], data)"""
     
   def recheckNickname(self):
     print "Rechecking nickname"
@@ -644,6 +660,8 @@ class TestBot(SingleServerIRCBot):
     
     if not self.lookuptable.has_key(command):
       result = self.command_confused(context)
+    elif not adequatePermission(self.lookuptable[command].permission, permission):
+      result = self.command_noauth(context)
     elif target != "privmsg" and permission == "USER":
       result = self.command_msgnotify(context)  # USER may never do things in public
     elif target != "privmsg" and self.lookuptable[command].permission == "GOD":
@@ -652,6 +670,9 @@ class TestBot(SingleServerIRCBot):
       result = self.lookuptable[command].parseAndDispatch(arguments, context)
     
     print result
+    
+    for item in result:
+      item.dispatch(self, **context)
     
     return
     
