@@ -393,6 +393,7 @@ class TestBot(SingleServerIRCBot):
       self.text = text
     
     def dispatch(self, bot, target, **kwargs):
+      print "DISPATCH privmsg to %s" % target
       bot.queueMessage(('privmsg', target), self.text)
   
   def command_confused(self, **kwargs):
@@ -405,7 +406,14 @@ class TestBot(SingleServerIRCBot):
     return [self.NotifySender("You don't have the permissions needed to do that. If you should, fix your hostmask, ask an op to update your host, or op yourself.")]
   
   def command_calc(self, key, **kwargs):
-    pass
+    global g_queryCount
+    g_queryCount = g_queryCount + 1
+    data = getEntry(key)
+    incrementCount(key)
+    if data == "":
+      return [self.MsgTarget("No entry for %s" % key)]
+    else:
+      return [self.MsgTarget("%s = %s" % (key, data))]
   
   def command_apropos(self, text, **kwargs):
     pass
@@ -638,12 +646,12 @@ class TestBot(SingleServerIRCBot):
     
     arguments = arguments.strip()
     
+    user_host = e.source()
+    
     if e.eventtype() == "privmsg":
-      target = "privmsg"
+      target = nm_to_n(user_host)
     else:
       target = e.target()
-    
-    user_host = e.source()
     
     if not self.lookuptable.has_key(command) and target != "privmsg":
       print "No command for", command
@@ -662,9 +670,9 @@ class TestBot(SingleServerIRCBot):
       result = self.command_confused(context)
     elif not adequatePermission(self.lookuptable[command].permission, permission):
       result = self.command_noauth(context)
-    elif target != "privmsg" and permission == "USER":
+    elif target[0] == "#" and permission == "USER":
       result = self.command_msgnotify(context)  # USER may never do things in public
-    elif target != "privmsg" and self.lookuptable[command].permission == "GOD":
+    elif target[0] == "#" and self.lookuptable[command].permission == "GOD":
       return  # GOD-level commands are msg-only
     else:
       result = self.lookuptable[command].parseAndDispatch(arguments, context)
