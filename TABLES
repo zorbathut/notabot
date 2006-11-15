@@ -2,56 +2,51 @@
 
 -- Logs crashes. Text is the exception text, who is the last user, time is the timestamp.
 CREATE TABLE `crashlog` (
-  `time` timestamp NOT NULL default CURRENT_TIMESTAMP on update
-    CURRENT_TIMESTAMP,
-  `who` varchar(100) NOT NULL default '',
+  `time` timestamp NOT NULL default CURRENT_TIMESTAMP,
+  `who` varchar(255) NOT NULL,
   `command` text NOT NULL,
   `what` text NOT NULL
 );
 
 -- current values for the factoid database, plus number of times read
 CREATE TABLE `current` (
-  `name` varchar(100) NOT NULL default '',
+  `name` varchar(255) NOT NULL,
   `value` text NOT NULL,
-  `count` int(11) NOT NULL default '0',
+  `count` int NOT NULL default '0',
   PRIMARY KEY  (`name`)
 );
 
 -- TODO: figure out what exactly this is
 CREATE TABLE `masks` (
-  `origmask` varchar(100) NOT NULL default '',
-  `username` varchar(100) NOT NULL default '',
-  `mask` varchar(255) NOT NULL default '',
+  `origmask` varchar(255) NOT NULL,
+  `username` varchar(255) NOT NULL,
+  `mask` varchar(255) NOT NULL,
   PRIMARY KEY  (`username`,`mask`)
 );
 
 -- users and permissions (user is identified via the masks table)
 CREATE TABLE `users` (
-  `username` char(100) NOT NULL default '',
-  `permlev` enum('IGNORE','USER','PUBLIC','CHANGE','AUTHORIZE','GOD') NOT NULL
-    default 'USER',
+  `username` char(255) NOT NULL,
+  `permlev` enum('IGNORE','USER','PUBLIC','CHANGE','AUTHORIZE','GOD') NOT NULL,
   PRIMARY KEY  (`username`)
 );
 
 -- records changes to the user table
 CREATE TABLE `userver` (
-  `time` timestamp NOT NULL default CURRENT_TIMESTAMP on update
-    CURRENT_TIMESTAMP,
-  `modifier` varchar(100) NOT NULL default '',
-  `command` varchar(100) NOT NULL default '',
-  `target` varchar(100) NOT NULL default '',
-  `data` varchar(255) NOT NULL default ''
+  `time` timestamp NOT NULL default CURRENT_TIMESTAMP,
+  `modifier` varchar(255) NOT NULL,
+  `command` enum('ADDHOST', 'RMHOST', 'CHPERM' ) NOT NULL,
+  `target` varchar(255) NOT NULL,
+  `data` varchar(255) NOT NULL
 );
 
 -- records factoid changes
 CREATE TABLE `versions` (
-  `name` varchar(100) NOT NULL default '',
-  `version` int(11) NOT NULL default '0',
-  `modifier` varchar(255) NOT NULL default '',  -- hostmask making the change
-  `username` varchar(100) NOT NULL default '', -- the username associated with that hostmask, or nickname
-  `changed` timestamp NOT NULL default CURRENT_TIMESTAMP on update
-    CURRENT_TIMESTAMP,
+  `name` varchar(255) NOT NULL,
+  `version` int NOT NULL,
+  `modifier` varchar(255) NOT NULL,  -- hostmask making the change
+  `username` varchar(255) NOT NULL, -- the username associated with that hostmask, or nickname
+  `changed` timestamp NOT NULL default CURRENT_TIMESTAMP,
   `value` text NOT NULL,
   PRIMARY KEY  (`name`,`version`)
-); 
-
+);
