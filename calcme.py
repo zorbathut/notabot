@@ -124,7 +124,7 @@ def getEntry(entry):
 def getVersionedEntry(entry, version):
   global db
   c=db.cursor()
-  c, rv = safeExecute(c, 'SELECT value, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
+  c, rv = safeExecute(c, 'SELECT value, username, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
   if rv == 0:
     return None, None, None
   else:
@@ -393,8 +393,15 @@ class TestBot(SingleServerIRCBot):
       self.text = text
     
     def dispatch(self, bot, target, **kwargs):
-      print "DISPATCH privmsg to %s" % target
       bot.queueMessage(('privmsg', target), self.text)
+  
+  class MsgOther:
+    def __init__(self, person, text):
+      self.person = person
+      self.text = text
+    
+    def dispatch(self, bot, **kwargs):
+      bot.queueMessage(('privmsg', self.person), self.text)
   
   def command_confused(self, **kwargs):
     return [self.NotifySender("Confused? \"/msg %s help <command>\" for docs." % self.connection.get_nickname())]
@@ -411,7 +418,7 @@ class TestBot(SingleServerIRCBot):
     data = getEntry(key)
     incrementCount(key)
     if data == "":
-      return [self.MsgTarget("No entry for %s" % key)]
+      return [self.MsgTarget("No entry for \"%s\"" % key)]
     else:
       return [self.MsgTarget("%s = %s" % (key, data))]
   
@@ -436,22 +443,46 @@ class TestBot(SingleServerIRCBot):
   def command_more(self, **kwargs):
     pass
   
-  def command_version(self, version, key, **kwargs):
-    pass
+  def command_version(self, key, version, permission, target, **kwargs):
+    entrytext, userid, userhost, time = getVersionedEntry(key, version)
+    if entrytext == None:
+      return [self.MsgTarget("\"%s\" v%s does not exist." % (key, version))]
+    
+    rv = []
+    if permission != "GOD" or target[0] == '#':
+      rv.append(self.MsgTarget("\"%s\" v%s changed at %s by %s" % (key, version, time, userid)))
+    else:
+      rv.append(self.MsgTarget("\"%s\" v%s changed at %s by %s (%s)" % (key, version, time, userid, userhost)))
+    
+    if entrytext == "":
+      rv.append(self.MsgTarget("\"%s\" was deleted." % key))
+    else:
+      rv.append(self.MsgTarget("\"%s\" v%s = %s" % (key, version, entrytext)))
+    
+    return rv
   
   def command_owncalc(self, key, **kwargs):
     pass
   
-  def command_tell(self, user, key, **kwargs):
+  def command_tell(self, user, key, target, user_nick, **kwargs):
+    global g_queryCount
+    g_queryCount = g_queryCount + 1
+    data = getEntry(key)
+    incrementCount(key)
+    if data == "" and target[0] == '#':
+      return [self.NotifySender("No entry for \"%s\"" % key)]
+    elif data == "" and target[0] != '#':
+      return [self.MsgTarget("No entry for \"%s\"" % key)]
+    else:
+      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data))]
+  
+  def command_mkcalc(self, key, value, user_host, user_id, **kwargs):
     pass
   
-  def command_mkcalc(self, key, value, user_host, user_nick, **kwargs):
+  def command_rmcalc(self, key, user_host, user_id, **kwargs):
     pass
   
-  def command_rmcalc(self, key, user_host, user_nick, **kwargs):
-    pass
-  
-  def command_chcalc(self, key, value, user_host, user_nick, **kwargs):
+  def command_chcalc(self, key, value, user_host, user_id, **kwargs):
     pass
   
   def command_whois(self, user, **kwargs):
@@ -647,9 +678,10 @@ class TestBot(SingleServerIRCBot):
     arguments = arguments.strip()
     
     user_host = e.source()
+    user_nick = nm_to_n(user_host)
     
     if e.eventtype() == "privmsg":
-      target = nm_to_n(user_host)
+      target = user_nick
     else:
       target = e.target()
     
@@ -657,14 +689,14 @@ class TestBot(SingleServerIRCBot):
       print "No command for", command
       return
     
-    permission, user_nick = getPermissions(user_host, self.channels[self.channel])
+    permission, user_id = getPermissions(user_host, self.channels[self.channel])
     
-    print command, arguments, target, user_host, permission, user_nick
+    print command, arguments, target, user_host, user_nick, permission, user_id
     
     if permission == "IGNORE":
       return
       
-    context = { "target": target, "user_host": user_host, "user_nick": user_nick, "permission": permission }
+    context = { "target": target, "user_host": user_host, "user_nick": user_nick, "permission": permission, "user_id": user_id }
     
     if not self.lookuptable.has_key(command):
       result = self.command_confused(context)
