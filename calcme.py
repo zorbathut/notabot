@@ -189,18 +189,18 @@ def changeEntry(entry, data, user_host, user_id):
     if rv == 0:
       raise Error, "Current is fucked weirdly."
 
-def apropos(data, name, value):
+def apropos(data, key=False, value=False):
   global db
   c=db.cursor()
-  if name == 0 and value == 1:
+  if key == 0 and value == 1:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND value LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
     if rv == 0:
       return "";
-  elif name == 1 and value == 0:
+  elif key == 1 and value == 0:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND name LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
     if rv == 0:
       return "";
-  elif name == 1 and value == 1:
+  elif key == 1 and value == 1:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND ( name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%") ) ORDER BY name', (data,data))
     if rv == 0:
       return "";
@@ -400,6 +400,18 @@ class TestBot(SingleServerIRCBot):
     def dispatch(self, bot, **kwargs):
       bot.queueMessage(('privmsg', self.person), self.text)
   
+  class CompositeTargetStart:
+    def __init__(self, data):
+      self.data = data
+    
+    def dispatch(self, bot, user_nick, target, **kwargs):
+      bot.queueCompositeMessage(user_nick, self.data)
+      bot.queueCompositeMore(user_nick, ('privmsg', target))
+  
+  class CompositeTargetMore:
+    def dispatch(self, bot, user_nick, target, **kwargs):
+      bot.queueCompositeMore(user_nick, ('privmsg', target))
+  
   def command_confused(self, **kwargs):
     return [self.NotifySender("Confused? \"/msg %s help <command>\" for docs." % self.connection.get_nickname())]
   
@@ -420,16 +432,16 @@ class TestBot(SingleServerIRCBot):
       return [self.MsgTarget("%s = %s" % (key, data))]
   
   def command_apropos(self, text, **kwargs):
-    pass
+    return [self.CompositeTargetStart(apropos(text, key=True, value=True))]
   
   def command_aproposk(self, text, **kwargs):
-    pass
+    return [self.CompositeTargetStart(apropos(text, key=True))]
   
   def command_aproposv(self, text, **kwargs):
-    pass
+    return [self.CompositeTargetStart(apropos(text, value=True))]
   
   def command_apropos2(self, **kwargs):
-    pass
+    return [self.NotifySender("apropos2 no longer exists. Try aproposk, aproposv, and apropos for searching keys, values, and everything, respectively.")]
   
   def command_status(self, key = None, **kwargs):
     if key == None:
@@ -446,7 +458,7 @@ class TestBot(SingleServerIRCBot):
     pass
   
   def command_more(self, **kwargs):
-    pass
+    return [self.CompositeTargetMore()]
   
   def command_version(self, key, version, permission, target, **kwargs):
     entrytext, userid, userhost, time = getVersionedEntry(key, version)
