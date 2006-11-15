@@ -480,7 +480,10 @@ class TestBot(SingleServerIRCBot):
     return rv
   
   def command_owncalc(self, key, **kwargs):
-    return []
+    data = getEntry(key)
+    if data == "":
+      return [self.MsgTarget("\"%s\" does not exist." % key)]
+    return [self.MsgTarget("\"%s\" was last edited by %s." % (key, getVersionedEntry(key, getLastVersion(key) - 1)[1]))]
   
   def command_tell(self, user, key, target, user_nick, **kwargs):
     global g_queryCount
@@ -528,17 +531,30 @@ class TestBot(SingleServerIRCBot):
       return [self.MsgTarget("I can't figure out who you are. You'll have to give an explicit target for whois.")]
     return [self.CompositeTargetStart(showhost(user), "%s (%s): " % (user, getNickPermissions(user)))]
   
-  def command_match(self, user, **kwargs):
-    pass
+  def command_match(self, hostmask, **kwargs):
+    matches = getMatch(hostmask)
+    if matches == "":
+      return [self.MsgTarget("No matches.")]
+    else:
+      return [self.MsgTarget("Matches user %s.", matches)]
   
-  def command_addhost(self, user, **kwargs):
-    pass
+  def command_addhost(self, user, hostmask, user_host, **kwargs):
+    if not addhost(user, hostmask, user_host):
+      return [self.MsgTarget("That host already exists for \"%s\"" % user)]
+    else:
+      return [self.MsgTarget("Host added for \"%s\"" % user)]
   
-  def command_rmhost(self, user, **kwargs):
-    pass
+  def command_rmhost(self, user, hostmask, user_host, **kwargs):
+    if not rmhost(user, hostmask, user_host):
+      return [self.MsgTarget("That host does not exist on \"%s\"" % user)]
+    else:
+      return [self.MsgTarget("Host removed for \"%s\"" % user)]
   
-  def command_chperm(self, user, **kwargs):
-    pass
+  def command_chperm(self, user, level, user_host, **kwargs):
+    if not chperm(user, level, user_host):
+      return [self.MsgTarget("Invalid permission level")]
+    else:
+      return [self.MsgTarget("%s set to permission level %s" % (user, level))]
   
   def updateLastsaid(self):
     #print self.lastsaid
