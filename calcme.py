@@ -671,7 +671,7 @@ class TestBot(SingleServerIRCBot):
       self.compositeBuffer[nick].append(prefix + "no matches")
     while len(values):
       output = prefix
-      while len(output) < 300 and len(values):
+      while len(values) and len(output) + len(values[0]) + 4 < 447:
         output = output + ('"%s" ' % values[0])
         values = values[1:]
       if len(values):
