@@ -434,8 +434,16 @@ class TestBot(SingleServerIRCBot):
   def command_apropos2(self, **kwargs):
     pass
   
-  def command_status(self, target, key = None, **kwargs):
-    pass
+  def command_status(self, key = None, **kwargs):
+    if key == None:
+      global g_changeCount, g_queryCount, g_startDate
+      return [self.MsgTarget("I have %s entries in my database. There have been %s changes and %s queries since %s." % (getCalcCount(), g_changeCount, g_queryCount, g_startDate))]
+    else:
+      ver = getLastVersion(key)
+      if ver == None:
+        return [self.MsgTarget("\"%s\" has been queried %s times and has no version history." % (key, getCount(key)))]
+      else:
+        return [self.MsgTarget("\"%s\" has been queried %s times and its last version is %s." % (key, getCount(key), ver))]
   
   def command_help(self, command = None, **kwargs):
     pass
@@ -462,7 +470,7 @@ class TestBot(SingleServerIRCBot):
     return rv
   
   def command_owncalc(self, key, **kwargs):
-    pass
+    return []
   
   def command_tell(self, user, key, target, user_nick, **kwargs):
     global g_queryCount
