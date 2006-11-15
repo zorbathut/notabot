@@ -166,7 +166,7 @@ def setCount(entry, count):
       c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, "", count))
       raise Error, "Can't seem to set for some reason."
 
-def changeEntry(entry, data, user):
+def changeEntry(entry, data, user_host, user_id):
   global db
   c=db.cursor()
   c, rv = safeExecute(c, 'SELECT max( version ) FROM versions WHERE name = %s', (entry,))
@@ -177,17 +177,17 @@ def changeEntry(entry, data, user):
     nextversion = 0
   else:
     nextversion = nextversion + 1
-  c, rv = safeExecute(c, 'INSERT INTO versions ( name, version, modifier, value, changed ) VALUES ( %s, %s, %s, %s, NOW() )', (entry, nextversion, user, data))
+  c, rv = safeExecute(c, 'INSERT INTO versions ( name, version, modifier, username, value, changed ) VALUES ( %s, %s, %s, %s, %s, NOW() )', (entry, nextversion, user_host, user_id, data))
   if rv == 0:
     raise Error, "Versioning is fucked."
   c, rv = safeExecute(c, 'UPDATE current SET value = %s WHERE name = %s', (data, entry))
   if rv == 0:
     c, rv = safeExecute(c, 'SELECT * FROM current WHERE value = %s AND name = %s', (data,entry))
+    if rv != 0:
+      raise Error, "Changed entry to already existing entry."
+    c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, data, 0))
     if rv == 0:
-      c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, data, 0))
-      if rv == 0:
-        raise Error, "Current is fucked weirdly."
-
+      raise Error, "Current is fucked weirdly."
 
 def apropos(data, name, value):
   global db
@@ -195,17 +195,14 @@ def apropos(data, name, value):
   if name == 0 and value == 1:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND value LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
     if rv == 0:
-      print "Dropped value"
       return "";
   elif name == 1 and value == 0:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND name LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
     if rv == 0:
-      print "Dropped name"
       return "";
   elif name == 1 and value == 1:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND ( name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%") ) ORDER BY name', (data,data))
     if rv == 0:
-      print "Dropped both"
       return "";
   else:
     raise Error, "Apropos is fucked."
@@ -478,20 +475,38 @@ class TestBot(SingleServerIRCBot):
     data = getEntry(key)
     incrementCount(key)
     if data == "" and target[0] == '#':
-      return [self.NotifySender("No entry for \"%s\"" % key)]
+      return [self.NotifySender("No entry for \"%s\"." % key)]
     elif data == "" and target[0] != '#':
-      return [self.MsgTarget("No entry for \"%s\"" % key)]
+      return [self.MsgTarget("No entry for \"%s\"." % key)]
     else:
       return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data))]
   
   def command_mkcalc(self, key, value, user_host, user_id, **kwargs):
-    pass
+    global g_changeCount
+    olddata = getEntry(key)
+    if olddata != "":
+      return [self.MsgTarget("I already have an entry for \"%s\"." % key)]
+    g_changeCount = g_changeCount + 1
+    changeEntry(key, value, user_host, user_id)
+    return [self.MsgTarget("\"%s\" added." % key)]
   
   def command_rmcalc(self, key, user_host, user_id, **kwargs):
-    pass
+    global g_changeCount
+    olddata = getEntry(key)
+    if olddata == "":
+      return [self.MsgTarget("\"%s\" is not a valid calc." % key)]
+    g_changeCount = g_changeCount + 1
+    changeEntry(key, "", user_host, user_id)
+    return [self.MsgTarget("\"%s\" removed." % key)]
   
   def command_chcalc(self, key, value, user_host, user_id, **kwargs):
-    pass
+    global g_changeCount
+    olddata = getEntry(key)
+    if olddata == value:
+      return [self.MsgTarget("\"%s\" is already equal to that." % key)]
+    g_changeCount = g_changeCount + 1
+    changeEntry(key, value, user_host, user_id)
+    return [self.MsgTarget("\"%s\" changed." % key)]
   
   def command_whois(self, user, **kwargs):
     pass
