@@ -368,7 +368,7 @@ class TestBot(SingleServerIRCBot):
         "rmcalc": self.ParseModule("CHANGE", "<key>", self.command_rmcalc),
         "chcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_chcalc),
         
-        "whois": self.ParseModule("GOD", "<user>", self.command_whois),
+        "whois": self.ParseModule("GOD", "[<user>]", self.command_whois),
         "match": self.ParseModule("GOD", "<hostmask>", self.command_match),
         "addhost": self.ParseModule("GOD", "<user> <hostmask>", self.command_addhost),
         "rmhost": self.ParseModule("GOD", "<user> <hostmask>", self.command_rmhost),
@@ -401,11 +401,12 @@ class TestBot(SingleServerIRCBot):
       bot.queueMessage(('privmsg', self.person), self.text)
   
   class CompositeTargetStart:
-    def __init__(self, data):
+    def __init__(self, data, prefix):
       self.data = data
+      self.prefix = prefix
     
     def dispatch(self, bot, user_nick, target, **kwargs):
-      bot.queueCompositeMessage(user_nick, self.data)
+      bot.queueCompositeMessage(user_nick, self.data, self.prefix)
       bot.queueCompositeMore(user_nick, ('privmsg', target))
   
   class CompositeTargetMore:
@@ -432,13 +433,13 @@ class TestBot(SingleServerIRCBot):
       return [self.MsgTarget("%s = %s" % (key, data))]
   
   def command_apropos(self, text, **kwargs):
-    return [self.CompositeTargetStart(apropos(text, key=True, value=True))]
+    return [self.CompositeTargetStart(apropos(text, key=True, value=True), "found: ")]
   
   def command_aproposk(self, text, **kwargs):
-    return [self.CompositeTargetStart(apropos(text, key=True))]
+    return [self.CompositeTargetStart(apropos(text, key=True), "found: ")]
   
   def command_aproposv(self, text, **kwargs):
-    return [self.CompositeTargetStart(apropos(text, value=True))]
+    return [self.CompositeTargetStart(apropos(text, value=True), "found: ")]
   
   def command_apropos2(self, **kwargs):
     return [self.NotifySender("apropos2 no longer exists. Try aproposk, aproposv, and apropos for searching keys, values, and everything, respectively.")]
@@ -520,8 +521,12 @@ class TestBot(SingleServerIRCBot):
     changeEntry(key, value, user_host, user_id)
     return [self.MsgTarget("\"%s\" changed." % key)]
   
-  def command_whois(self, user, **kwargs):
-    pass
+  def command_whois(self, user_host, user = None, **kwargs):
+    if user == None:
+      user = getMatch(user_host)
+    if user == "":
+      return [self.MsgTarget("I can't figure out who you are. You'll have to give an explicit target for whois.")]
+    return [self.CompositeTargetStart(showhost(user), "%s (%s): " % (user, getNickPermissions(user)))]
   
   def command_match(self, user, **kwargs):
     pass
@@ -661,7 +666,7 @@ class TestBot(SingleServerIRCBot):
     for key in todelete:
       del self.compositeBuffer[key]
     
-  def queueCompositeMessage(self, nick, values, prefix = "found: "):
+  def queueCompositeMessage(self, nick, values, prefix):
     if nick in self.compositeBuffer:
       del self.compositeBuffer[nick]
     self.doCompositeCulling()
@@ -671,7 +676,7 @@ class TestBot(SingleServerIRCBot):
       self.compositeBuffer[nick].append(prefix + "no matches")
     while len(values):
       output = prefix
-      while len(values) and len(output) + len(values[0]) + 4 < 447:
+      while len(values) and len(output) + len(values[0]) + 4 < 400:
         output = output + ('"%s" ' % values[0])
         values = values[1:]
       if len(values):
