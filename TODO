@@ -1,12 +1,8 @@
 ---- Main path
 - New parsing system
-  - Regexp matching
-  - "more blah blah blah blah" no trigger
   - If you send it garbage in msg, it should trigger confused
-  - "version blah blah blah" no trigger
-  - change showhost to whois
-  - "addhost host" default to user
 - Notify Zorba on errors
+- "tell" should check to see if the user is in the channel, and if not, only really send if it's in msg
 - Detailed help on syntax fuckup in /msg?
 - rmhost for own user (and, obviously, whois for own user)
 - rmuser

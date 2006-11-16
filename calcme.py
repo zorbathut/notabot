@@ -318,7 +318,6 @@ class TestBot(SingleServerIRCBot):
       self.confused = confused
     
     def parseAndDispatch(self, arguments, context):
-      print arguments, context
       result = self.regex.match(arguments)
       
       if result == None:
@@ -333,7 +332,6 @@ class TestBot(SingleServerIRCBot):
             raise Error
           elif value != None:
             context[key] = value
-        print "Calling", self.function, "with", context
         return self.function(**context)
     
   def __init__(self, channel, nickname, server, port=6667):
@@ -501,25 +499,33 @@ class TestBot(SingleServerIRCBot):
     data = getEntry(key)
     if data == "":
       return [self.MsgTarget("\"%s\" does not exist." % key)]
-    return [self.MsgTarget("\"%s\" was last edited by %s." % (key, getVersionedEntry(key, getLastVersion(key) - 1)[1]))]
+    return [self.MsgTarget("\"%s\" was last edited by %s." % (key, getVersionedEntry(key, getLastVersion(key))[1]))]
   
   def command_tell(self, user, key, target, user_nick, **kwargs):
     global g_queryCount
     g_queryCount = g_queryCount + 1
     data = getEntry(key)
     incrementCount(key)
-    if data == "" and target[0] == '#':
-      return [self.NotifySender("No entry for \"%s\"." % key)]
-    elif data == "" and target[0] != '#':
-      return [self.MsgTarget("No entry for \"%s\"." % key)]
+    
+    if target[0] == '#':
+      ResponseClass = self.NotifySender
     else:
-      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data))]
+      ResponseClass = self.MsgTarget
+    
+    if data == "" and target[0] == '#':
+      return [ResponseClass("No entry for \"%s\"." % key)]
+    elif data == "" and target[0] != '#':
+      return [ResponseClass("No entry for \"%s\"." % key)]
+    else:
+      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data)), ResponseClass("Calc %s sent to %s" % (key, user_nick))]
   
   def command_mkcalc(self, key, value, user_host, user_id, **kwargs):
     global g_changeCount
     olddata = getEntry(key)
     if olddata != "":
       return [self.MsgTarget("I already have an entry for \"%s\"." % key)]
+    if value == "":
+      return [self.MsgTarget("Calc values need to be longer than zero bytes.")]
     g_changeCount = g_changeCount + 1
     changeEntry(key, value, user_host, user_id)
     return [self.MsgTarget("\"%s\" added." % key)]
@@ -620,7 +626,7 @@ class TestBot(SingleServerIRCBot):
       del self.curtargets[target]
       
   def dequeueMessage(self):
-    print "entering deque"
+    #print "entering deque"
     if self.nextspeak > itime():
       self.ircobj.execute_delayed(1, self.dequeueMessage, ())
       return
@@ -635,7 +641,7 @@ class TestBot(SingleServerIRCBot):
       if target == ("",""):
         raise Error, "Queue fucked"
       data = self.curtargets[target][0]
-      print "snagorated ", target, data
+      #print "snagorated ", target, data
       print (target, data)
       if len(self.curtargets[target]) == 1:
         del self.curtargets[target]
@@ -770,7 +776,7 @@ class TestBot(SingleServerIRCBot):
       target = e.target()
     
     if not self.lookuptable.has_key(command) and target != "privmsg":
-      print "No command for", command
+      #print "No command for", command
       return
     
     permission, user_id = getPermissions(user_host, self.channels[self.channel])
@@ -783,11 +789,11 @@ class TestBot(SingleServerIRCBot):
     context = { "target": target, "user_host": user_host, "user_nick": user_nick, "permission": permission, "user_id": user_id, "lookuptable": self.lookuptable }
     
     if not self.lookuptable.has_key(command):
-      result = self.command_confused(context)
+      result = self.command_confused(**context)
     elif not adequatePermission(self.lookuptable[command].permission, permission):
-      result = self.command_noauth(context)
+      result = self.command_noauth(**context)
     elif target[0] == "#" and permission == "USER":
-      result = self.command_msgnotify(context)  # USER may never do things in public
+      result = self.command_msgnotify(**context)  # USER may never do things in public
     elif target[0] == "#" and self.lookuptable[command].private_only:
       return
     else:
