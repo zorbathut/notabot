@@ -517,7 +517,7 @@ class TestBot(SingleServerIRCBot):
     elif data == "" and target[0] != '#':
       return [ResponseClass("No entry for \"%s\"." % key)]
     else:
-      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data)), ResponseClass("Calc %s sent to %s" % (key, user_nick))]
+      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data)), ResponseClass("Calc %s sent to %s" % (key, user))]
   
   def command_mkcalc(self, key, value, user_host, user_id, **kwargs):
     global g_changeCount
