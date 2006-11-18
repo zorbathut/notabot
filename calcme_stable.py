@@ -89,19 +89,20 @@ def getNickPermissions(nick):
   else:
     return c.fetchone()[0]
 
-def getPermissions(user, nick, channel):
+def getPermissions(user_host, channel):
   global db
   c=db.cursor()
-  c, rv = safeExecute(c, 'SELECT max(users.permlev) FROM users, masks WHERE users.username = masks.username AND %s LIKE masks.mask', (user,))
-  cp = c.fetchone()[0]
-  if cp == None:
-    cp = "USER"
-  #print "permoutput:", cp
+  c, rv = safeExecute(c, 'SELECT max(users.permlev), min(users.username) FROM users, masks WHERE users.username = masks.username AND %s LIKE masks.mask', (user_host,)) # Why min? Because there might technically be multiple matches, and this makes things less likely to be blamed on me. (There probably shouldn't be multiple matches. Todo: rig things to notify someone if there are multiple matches)
+  perm, username = c.fetchone()
+  nick = nm_to_n(user_host)
+  if perm == None:
+    perm = "USER"
+    username = nick
   if channel.is_oper(nick):
-    cp = greaterPermission(cp, 'AUTHORIZE')
-  if cp != 'IGNORE' and channel.is_voiced(nick):
-    cp = greaterPermission(cp, 'PUBLIC')
-  return cp
+    perm = greaterPermission(perm, 'AUTHORIZE')
+  if perm != 'IGNORE' and channel.is_voiced(nick):
+    perm = greaterPermission(perm, 'PUBLIC')
+  return perm, username
 
 def getMatch(user):
   global db
@@ -123,9 +124,9 @@ def getEntry(entry):
 def getVersionedEntry(entry, version):
   global db
   c=db.cursor()
-  c, rv = safeExecute(c, 'SELECT value, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
+  c, rv = safeExecute(c, 'SELECT value, username, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
   if rv == 0:
-    return None, None, None
+    return None, None, None, None
   else:
     return c.fetchone()
   
@@ -165,7 +166,7 @@ def setCount(entry, count):
       c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, "", count))
       raise Error, "Can't seem to set for some reason."
 
-def changeEntry(entry, data, user):
+def changeEntry(entry, data, user_host, user_id):
   global db
   c=db.cursor()
   c, rv = safeExecute(c, 'SELECT max( version ) FROM versions WHERE name = %s', (entry,))
@@ -176,35 +177,32 @@ def changeEntry(entry, data, user):
     nextversion = 0
   else:
     nextversion = nextversion + 1
-  c, rv = safeExecute(c, 'INSERT INTO versions ( name, version, modifier, value, changed ) VALUES ( %s, %s, %s, %s, NOW() )', (entry, nextversion, user, data))
+  c, rv = safeExecute(c, 'INSERT INTO versions ( name, version, modifier, username, value, changed ) VALUES ( %s, %s, %s, %s, %s, NOW() )', (entry, nextversion, user_host, user_id, data))
   if rv == 0:
     raise Error, "Versioning is fucked."
   c, rv = safeExecute(c, 'UPDATE current SET value = %s WHERE name = %s', (data, entry))
   if rv == 0:
     c, rv = safeExecute(c, 'SELECT * FROM current WHERE value = %s AND name = %s', (data,entry))
+    if rv != 0:
+      raise Error, "Changed entry to already existing entry."
+    c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, data, 0))
     if rv == 0:
-      c, rv = safeExecute(c, 'INSERT INTO current ( name, value, count ) VALUES ( %s, %s, %s )', (entry, data, 0))
-      if rv == 0:
-        raise Error, "Current is fucked weirdly."
+      raise Error, "Current is fucked weirdly."
 
-
-def apropos(data, name, value):
+def apropos(data, key=False, value=False):
   global db
   c=db.cursor()
-  if name == 0 and value == 1:
+  if key == 0 and value == 1:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND value LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
     if rv == 0:
-      print "Dropped value"
       return "";
-  elif name == 1 and value == 0:
+  elif key == 1 and value == 0:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND name LIKE CONCAT("%%", %s, "%%") ORDER BY name', (data,))
     if rv == 0:
-      print "Dropped name"
       return "";
-  elif name == 1 and value == 1:
+  elif key == 1 and value == 1:
     c, rv = safeExecute(c, 'SELECT name FROM current WHERE value != "" AND ( name LIKE CONCAT("%%", %s, "%%") OR value LIKE CONCAT("%%", %s, "%%") ) ORDER BY name', (data,data))
     if rv == 0:
-      print "Dropped both"
       return "";
   else:
     raise Error, "Apropos is fucked."
@@ -299,6 +297,43 @@ def toki(instring):
   return out
 
 class TestBot(SingleServerIRCBot):
+  class ParseModule:
+    def __init__(self, permission, pattern, function, visible = True, confused_help = True, private_only = False):
+      self.permission = permission
+      self.pattern = pattern
+      self.function = function
+      self.confused_help = confused_help
+      self.visible = visible
+      self.private_only = private_only
+      
+      # This entire thing is hilariously grim.
+      processedpattern = pattern.replace(" ", "\s*").replace("[", "").replace("]", "?").replace("<key>", "((?P<key>[^=]{1,255}?)\s*)").replace("<text>", "((?P<text>.+?)\s*)").replace("<command>", "((?P<command>\w+?)\s*)").replace("<version>", "((?P<version>\d{1,10})(\s+|$))").replace("<user>", "((?P<user>[^\s]{1,255})(\s+|$))").replace("<value>", "((?P<value>.*)(\s+|$))").replace("<hostmask>", "((?P<hostmask>[^\s]{1,255})(\s+|$))").replace("<level>", "((?P<level>[\w]+)(\s+|$))")
+      processedpattern = "^\s*" + processedpattern + "$"
+      print pattern
+      print processedpattern
+      
+      self.regex = re.compile(processedpattern)
+    
+    def setConfused(self, confused):
+      self.confused = confused
+    
+    def parseAndDispatch(self, arguments, context):
+      result = self.regex.match(arguments)
+      
+      if result == None:
+        if self.confused_help:
+          return self.confused(**context)
+        else:
+          return []
+      else:
+        print result.groupdict()
+        for key,value in result.groupdict().iteritems():
+          if key in context:
+            raise Error
+          elif value != None:
+            context[key] = value
+        return self.function(**context)
+    
   def __init__(self, channel, nickname, server, port=6667):
     self.lastnick = nickname
     SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
@@ -316,6 +351,245 @@ class TestBot(SingleServerIRCBot):
     self.compositeTiming = {}
     self.intendedNickname = nickname
     
+    self.lookuptable = {
+        "calc": self.ParseModule("USER", "<key>", self.command_calc),
+        "apropos": self.ParseModule("USER", "<text>", self.command_apropos),
+        "aproposk": self.ParseModule("USER", "<text>", self.command_aproposk),
+        "aproposv": self.ParseModule("USER", "<text>", self.command_aproposv),
+        "apropos2": self.ParseModule("USER", "[<text>]", self.command_apropos2, visible = False), # error only
+        "status": self.ParseModule("USER", "[<key>]", self.command_status, confused_help = False),
+        "help": self.ParseModule("USER", "[<command>]", self.command_help, confused_help = False, private_only = True),
+        "more": self.ParseModule("USER", "", self.command_more, confused_help = False),
+        "version": self.ParseModule("USER", "<version> <key>", self.command_version, confused_help = False),
+        "owncalc": self.ParseModule("USER", "<key>", self.command_owncalc),
+        
+        "tell": self.ParseModule("PUBLIC", "<user> <key>", self.command_tell, confused_help = False),
+        
+        "mkcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_mkcalc),
+        "rmcalc": self.ParseModule("CHANGE", "<key>", self.command_rmcalc),
+        "chcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_chcalc),
+        
+        "whois": self.ParseModule("GOD", "[<user>]", self.command_whois, private_only = True),
+        "match": self.ParseModule("GOD", "<hostmask>", self.command_match, private_only = True),
+        "addhost": self.ParseModule("GOD", "[<user>] <hostmask>", self.command_addhost, private_only = True),
+        "rmhost": self.ParseModule("GOD", "[<user>] <hostmask>", self.command_rmhost, private_only = True),
+        "chperm": self.ParseModule("GOD", "<user> <level>", self.command_chperm, private_only = True),
+      }
+    
+    for value in self.lookuptable.itervalues():
+      value.setConfused(self.command_confused)
+    
+  class NotifySender:
+    def __init__(self, text):
+      self.text = text
+    
+    def dispatch(self, bot, user_nick, **kwargs):
+      bot.queueMessage(('notice', user_nick), self.text)
+  
+  class MsgTarget:
+    def __init__(self, text):
+      self.text = text
+    
+    def dispatch(self, bot, target, **kwargs):
+      bot.queueMessage(('privmsg', target), self.text)
+  
+  class MsgOther:
+    def __init__(self, person, text):
+      self.person = person
+      self.text = text
+    
+    def dispatch(self, bot, **kwargs):
+      bot.queueMessage(('privmsg', self.person), self.text)
+  
+  class CompositeTargetStart:
+    def __init__(self, data, prefix):
+      self.data = data
+      self.prefix = prefix
+    
+    def dispatch(self, bot, user_nick, target, **kwargs):
+      bot.queueCompositeMessage(user_nick, self.data, self.prefix)
+      bot.queueCompositeMore(user_nick, ('privmsg', target))
+  
+  class CompositeTargetMore:
+    def dispatch(self, bot, user_nick, target, **kwargs):
+      bot.queueCompositeMore(user_nick, ('privmsg', target))
+  
+  def command_confused(self, target, **kwargs):
+    if target[0] == '#':
+      return [self.NotifySender("Confused? \"/msg %s help <command>\" for docs." % self.connection.get_nickname())]
+    else:
+      return [self.MsgTarget("Confused? \"help <command>\" for docs.")]
+  
+  def command_msgnotify(self, **kwargs):
+    return [self.NotifySender("Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")]
+  
+  def command_noauth(self, **kwargs):
+    return [self.NotifySender("You don't have the permissions needed to do that. If you should, fix your hostmask, ask an op to update your host, or op yourself.")]
+  
+  def command_calc(self, key, **kwargs):
+    global g_queryCount
+    g_queryCount = g_queryCount + 1
+    data = getEntry(key)
+    incrementCount(key)
+    if data == "":
+      return [self.MsgTarget("No entry for \"%s\"" % key)]
+    else:
+      return [self.MsgTarget("%s = %s" % (key, data))]
+  
+  def command_apropos(self, text, **kwargs):
+    return [self.CompositeTargetStart(apropos(text, key=True, value=True), "found: ")]
+  
+  def command_aproposk(self, text, **kwargs):
+    return [self.CompositeTargetStart(apropos(text, key=True), "found: ")]
+  
+  def command_aproposv(self, text, **kwargs):
+    return [self.CompositeTargetStart(apropos(text, value=True), "found: ")]
+  
+  def command_apropos2(self, **kwargs):
+    return [self.NotifySender("apropos2 no longer exists. Try aproposk, aproposv, and apropos for searching keys, values, and everything, respectively.")]
+  
+  def command_status(self, key = None, **kwargs):
+    if key == None:
+      global g_changeCount, g_queryCount, g_startDate
+      return [self.MsgTarget("I have %s entries in my database. There have been %s changes and %s queries since %s." % (getCalcCount(), g_changeCount, g_queryCount, g_startDate))]
+    else:
+      ver = getLastVersion(key)
+      if ver == None:
+        return [self.MsgTarget("\"%s\" has been queried %s times and has no version history." % (key, getCount(key)))]
+      else:
+        return [self.MsgTarget("\"%s\" has been queried %s times and its last version is %s." % (key, getCount(key), ver))]
+  
+  def command_help(self, lookuptable, permission, command = None, **kwargs):
+    if command == None:
+      options = "Available commands for level %s:" % permission
+      permissionstraverse = [ "USER", "PUBLIC", "CHANGE", "GOD" ]
+      for item in permissionstraverse:
+        if adequatePermission(item, permission):
+          for key, value in lookuptable.iteritems():
+            if value.permission == item and value.visible:
+              options = options + " " + key
+      return [self.MsgTarget(options)]
+    else:
+      if not command in lookuptable or not lookuptable[command].visible:
+        return [self.MsgTarget("\"%s\" is not a valid command." % command)]
+      return [self.MsgTarget("Usage: %s %s" % (command, lookuptable[command].pattern))]
+  
+  def command_more(self, **kwargs):
+    return [self.CompositeTargetMore()]
+  
+  def command_version(self, key, version, permission, target, **kwargs):
+    entrytext, userid, userhost, time = getVersionedEntry(key, version)
+    if entrytext == None:
+      return [self.MsgTarget("\"%s\" v%s does not exist." % (key, version))]
+    
+    rv = []
+    if permission != "GOD" or target[0] == '#':
+      rv.append(self.MsgTarget("\"%s\" v%s changed at %s by %s" % (key, version, time, userid)))
+    else:
+      rv.append(self.MsgTarget("\"%s\" v%s changed at %s by %s (%s)" % (key, version, time, userid, userhost)))
+    
+    if entrytext == "":
+      rv.append(self.MsgTarget("\"%s\" was deleted." % key))
+    else:
+      rv.append(self.MsgTarget("\"%s\" v%s = %s" % (key, version, entrytext)))
+    
+    return rv
+  
+  def command_owncalc(self, key, **kwargs):
+    data = getEntry(key)
+    if data == "":
+      return [self.MsgTarget("\"%s\" does not exist." % key)]
+    return [self.MsgTarget("\"%s\" was last edited by %s." % (key, getVersionedEntry(key, getLastVersion(key))[1]))]
+  
+  def command_tell(self, user, key, target, user_nick, **kwargs):
+    global g_queryCount
+    g_queryCount = g_queryCount + 1
+    data = getEntry(key)
+    incrementCount(key)
+    
+    if target[0] == '#':
+      ResponseClass = self.NotifySender
+    else:
+      ResponseClass = self.MsgTarget
+    
+    if data == "" and target[0] == '#':
+      return [ResponseClass("No entry for \"%s\"." % key)]
+    elif data == "" and target[0] != '#':
+      return [ResponseClass("No entry for \"%s\"." % key)]
+    else:
+      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data)), ResponseClass("Calc %s sent to %s" % (key, user_nick))]
+  
+  def command_mkcalc(self, key, value, user_host, user_id, **kwargs):
+    global g_changeCount
+    olddata = getEntry(key)
+    if olddata != "":
+      return [self.MsgTarget("I already have an entry for \"%s\"." % key)]
+    if value == "":
+      return [self.MsgTarget("Calc values need to be longer than zero bytes.")]
+    g_changeCount = g_changeCount + 1
+    changeEntry(key, value, user_host, user_id)
+    return [self.MsgTarget("\"%s\" added." % key)]
+  
+  def command_rmcalc(self, key, user_host, user_id, **kwargs):
+    global g_changeCount
+    olddata = getEntry(key)
+    if olddata == "":
+      return [self.MsgTarget("\"%s\" is not a valid calc." % key)]
+    g_changeCount = g_changeCount + 1
+    changeEntry(key, "", user_host, user_id)
+    return [self.MsgTarget("\"%s\" removed." % key)]
+  
+  def command_chcalc(self, key, value, user_host, user_id, **kwargs):
+    global g_changeCount
+    olddata = getEntry(key)
+    if olddata == value:
+      return [self.MsgTarget("\"%s\" is already equal to that." % key)]
+    g_changeCount = g_changeCount + 1
+    changeEntry(key, value, user_host, user_id)
+    return [self.MsgTarget("\"%s\" changed." % key)]
+  
+  def command_whois(self, user_host, user = None, **kwargs):
+    if user == None:
+      user = getMatch(user_host)
+    if user == "":
+      return [self.MsgTarget("I can't figure out who you are. You'll have to give an explicit target.")]
+    return [self.CompositeTargetStart(showhost(user), "%s (%s): " % (user, getNickPermissions(user)))]
+  
+  def command_match(self, hostmask, **kwargs):
+    matches = getMatch(hostmask)
+    if matches == "":
+      return [self.MsgTarget("No matches.")]
+    else:
+      return [self.MsgTarget("Matches user %s.", matches)]
+  
+  def command_addhost(self, hostmask, user_host, user = None, **kwargs):
+    if user == None:
+      user = getMatch(user_host)
+    if user == "":
+      return [self.MsgTarget("I can't figure out who you are. You'll have to give an explicit target.")]
+    
+    if not addhost(user, hostmask, user_host):
+      return [self.MsgTarget("That host already exists for \"%s\"" % user)]
+    else:
+      return [self.MsgTarget("Host added for \"%s\"" % user)]
+  
+  def command_rmhost(self, hostmask, user_host, user = None, **kwargs):
+    if user == None:
+      user = getMatch(user_host)
+    if user == "":
+      return [self.MsgTarget("I can't figure out who you are. You'll have to give an explicit target.")]
+    
+    if not rmhost(user, hostmask, user_host):
+      return [self.MsgTarget("That host does not exist on \"%s\"" % user)]
+    else:
+      return [self.MsgTarget("Host removed for \"%s\"" % user)]
+  
+  def command_chperm(self, user, level, user_host, permission, **kwargs):
+    if not chperm(user, level, user_host):
+      return [self.MsgTarget("Invalid permission level")]
+    else:
+      return [self.MsgTarget("%s set to permission level %s" % (user, level))]
+  
   def updateLastsaid(self):
     #print self.lastsaid
     while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 15:
@@ -352,7 +626,7 @@ class TestBot(SingleServerIRCBot):
       del self.curtargets[target]
       
   def dequeueMessage(self):
-    print "entering deque"
+    #print "entering deque"
     if self.nextspeak > itime():
       self.ircobj.execute_delayed(1, self.dequeueMessage, ())
       return
@@ -367,7 +641,7 @@ class TestBot(SingleServerIRCBot):
       if target == ("",""):
         raise Error, "Queue fucked"
       data = self.curtargets[target][0]
-      print "snagorated ", target, data
+      #print "snagorated ", target, data
       print (target, data)
       if len(self.curtargets[target]) == 1:
         del self.curtargets[target]
@@ -388,13 +662,6 @@ class TestBot(SingleServerIRCBot):
       else:
         self.timerRunning = 0
       return
-
-      
-    """
-      if target[0] == 'notice':
-      self.connection.notice(target[1], data)
-    elif target[0] == 'privmsg':
-      self.connection.privmsg(target[1], data)"""
     
   def recheckNickname(self):
     print "Rechecking nickname"
@@ -449,7 +716,7 @@ class TestBot(SingleServerIRCBot):
     for key in todelete:
       del self.compositeBuffer[key]
     
-  def queueCompositeMessage(self, nick, values, prefix = "found: "):
+  def queueCompositeMessage(self, nick, values, prefix):
     if nick in self.compositeBuffer:
       del self.compositeBuffer[nick]
     self.doCompositeCulling()
@@ -459,7 +726,7 @@ class TestBot(SingleServerIRCBot):
       self.compositeBuffer[nick].append(prefix + "no matches")
     while len(values):
       output = prefix
-      while len(output) < 300 and len(values):
+      while len(values) and len(output) + len(values[0]) + 4 < 400:
         output = output + ('"%s" ' % values[0])
         values = values[1:]
       if len(values):
@@ -485,282 +752,59 @@ class TestBot(SingleServerIRCBot):
     #print e.source()
     #print e.target()
     #print e.arguments()
-    striparg = e.arguments()[0].replace("\x02", "").replace("\x1f", "").replace("\x03", "").replace("\t"," ")
     
-    instr = striparg.split(' ', 1)
-    cmd = instr[0]
-    if len(instr) > 1:
-      instr[1] = instr[1].strip()
+    if e.eventtype() != "pubmsg" and e.eventtype() != "privmsg":
+      print "Unknown message type", e.eventtype() # TODO: /msg Zorba
     
-    nick = nm_to_n(e.source())
-    c = self.connection
-     
-    """planned variables: cmd, source, target, entry, data"""
+    # Remove control characters
+    sanitized = re.sub('[\x00-\x1f]','',e.arguments()[0])
     
-    confused = 0
-    
-    if cmd == "calc" or cmd == "status" or cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2" or cmd == "help" or cmd == "more" or cmd == "version":
-      if e.eventtype() == "pubmsg":
-        target = e.target()
-        source = e.target()
-      else:
-        target = nick
-        source = nick
-    elif cmd == "tell_calc":
-      if len(instr) == 1 or instr[1] == "":
-        confused = 1
-        entry = ""
-        source = nick
-        target = ""
-      else :
-        tellparse = instr[1].split(' ', 1)
-        if len(tellparse) == 2:
-          tellparse[1:] = tellparse[1].strip().split(' ', 1)
-          if len(tellparse) == 3:
-            tellparse[0] = tellparse[0].strip()
-            tellparse[2] = tellparse[2].strip()
-        if len(tellparse) != 3 or tellparse[2] == "":
-          confused = 1
-          entry = ""
-          source = nick
-          target = ""
-        else:
-          target = tellparse[0]
-          source = nick
-          entry = tellparse[2]
-    elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match":
-      if e.eventtype() == "pubmsg":
-        return
-      target = nick
-      source = nick
+    if len(sanitized.split(' ', 1)) == 1:
+      command = sanitized
+      arguments = ""
     else:
-      return
-
-    if cmd == "calc" or cmd == "status" or cmd == "rmcalc" or cmd == "apropos" or cmd == "aproposk" or cmd == "aproposv" or cmd == "apropos2":
-      if len(instr) == 1 or instr[1] == "":
-        if cmd == "status":
-          entry = ""
-        else:
-          confused = 1
-          entry = ""
-      else:
-        entry = instr[1]
-      data = ""
-    elif cmd == "version":
-      if len(instr) == 1 or len(instr[1].split(' ', 1)) != 2:
-        confused = 1
-        entry = ""
-        data = ""
-      else:
-        data, entry = instr[1].split(' ', 1)
-        entry = entry.strip()
-    elif cmd == "tell_calc":
-      pass
-    elif cmd == "mkcalc" or cmd == "chcalc":
-      if len(instr) == 1 or instr[1] == "":
-        confused = 1
-        entry = ""
-        data = ""
-      else:
-        dat = instr[1].split('=', 1)
-        if len(dat) != 2 or dat[0].strip() == "" or dat[1].strip() == "":
-          confused = 1
-          entry = ""
-          data = ""
-        else:
-          dat[0] = dat[0].strip()
-          dat[1] = dat[1].strip()
-          entry = dat[0]
-          data = dat[1]
-    elif cmd == "help" or cmd == "more":
-      entry = ""
-      data = ""
-    elif cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match":
-      if len(instr) == 1:
-        data = []
-      else:
-        data = toki(instr[1])
-      entry = ""
-      print data
+      command, arguments = sanitized.split(' ', 1)
+    
+    arguments = arguments.strip()
+    
+    user_host = e.source()
+    user_nick = nm_to_n(user_host)
+    
+    if e.eventtype() == "privmsg":
+      target = user_nick
     else:
-      raise Error, "Shouldn't get here."
-      
-    entry = entry.lower()
-    if len(entry)>100:
-      entry = entry[0:100]
-    """
-    print self.channels
-    print self.channels[self.channel]
-    print self.channels[self.channel].userdict
-    print self.channels[self.channel].operdict
-    print self.channels[self.channel].voiceddict
-    print nick
-    print self.channels[self.channel].operdict.has_key(nick)
-    print self.channels[self.channel].is_oper(nick)
-    print permlev"""
+      target = e.target()
     
-    permlev = getPermissions(e.source(), nick, self.channels[self.channel])
-    
-    if permlev == 'IGNORE':
-      return
-      
-    if (cmd == "apropos2"):
-      self.queueMessage(('notice', nick), "apropos2 no longer exists. Use aproposk to search keys, aproposv to search values, or apropos to search both.")
+    if not self.lookuptable.has_key(command) and target != "privmsg":
+      #print "No command for", command
       return
     
-    if (confused):
-      self.queueMessage(('notice', nick), "Confused? Type help in msg for a list of available commands.")
-      return
+    permission, user_id = getPermissions(user_host, self.channels[self.channel])
     
-    if (cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc") and not adequatePermission('CHANGE', permlev):
-      self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op yourself or stop trying.")
+    print command, arguments, target, user_host, user_nick, permission, user_id
+    
+    if permission == "IGNORE":
       return
       
-    if cmd == "tell_calc" and not adequatePermission('PUBLIC', permlev):
-      self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that. Op/voice yourself or stop trying.")
+    context = { "target": target, "user_host": user_host, "user_nick": user_nick, "permission": permission, "user_id": user_id, "lookuptable": self.lookuptable }
+    
+    if not self.lookuptable.has_key(command):
+      result = self.command_confused(**context)
+    elif not adequatePermission(self.lookuptable[command].permission, permission):
+      result = self.command_noauth(**context)
+    elif target[0] == "#" and permission == "USER":
+      result = self.command_msgnotify(**context)  # USER may never do things in public
+    elif target[0] == "#" and self.lookuptable[command].private_only:
       return
-      
-    if target[0] == '#' and not adequatePermission('PUBLIC', permlev):
-      self.queueMessage(('notice', nick), "Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")
-      return
-      
-    if (cmd == "addhost" or cmd == "rmhost" or cmd == "showhost" or cmd == "chperm" or cmd == "match") and not adequatePermission('GOD', permlev):
-      return
-      
-    if cmd == "calc" or cmd == "tell_calc":
-      g_queryCount = g_queryCount + 1
-      data = getEntry(entry)
-      """ this whole section should be a lot better """
-      if data == "":
-        if cmd == "tell_calc":
-          self.queueMessage(('notice', source), "no entry for " + entry, True)
-        else:
-          self.queueMessage(('privmsg', source), "no entry for " + entry, True)
-      else:
-        if cmd == "tell_calc":
-          self.queueMessage(('privmsg', target), nick + " wanted me to tell you:", True)
-          self.queueMessage(('notice', source), 'sent calc for "%s" to %s' % (entry, target), True)
-        self.queueMessage(('privmsg', target), entry + " = " + data, True)
-      incrementCount(entry)
-    elif cmd == "version":
-      entrytext, user, time = getVersionedEntry(entry, data)
-      if entrytext == None:
-        self.queueMessage(('privmsg', target), 'That version does not exist')
-      else:
-        self.queueMessage(('privmsg', target), 'Entry "%s" version %s changed at %s by %s' % (entry, data, time, user), True)
-        if entrytext == "":
-          self.queueMessage(('privmsg', target), '%s was deleted.' % (entry,), True)
-        else:
-          self.queueMessage(('privmsg', target), '%s v %s = %s' % (entry, data, entrytext), True)
-    elif cmd == "status":
-      if entry == "":
-        self.queueMessage(('privmsg', source), 'I have %d entries in my database. There have been %d changes and %d queries since %s.' % (getCalcCount(), g_changeCount, g_queryCount, g_startDate), True)
-      else:
-        data = getCount(entry)
-        ver = getLastVersion(entry)
-        if ver == None:
-          versiondata = ", and has no version history"
-        else:
-          versiondata = ", and its last version is %d" % ver
-        self.queueMessage(('privmsg', source), '"%s" has been queried %d times%s.' % (entry, data, versiondata), True)
-    elif cmd == "mkcalc" or cmd == "rmcalc" or cmd == "chcalc":
-      olddata = getEntry(entry)
-      if cmd == "rmcalc" and olddata == "":
-        self.queueMessage(('privmsg', source), '"%s" is not a valid calc' % (entry,), True)
-        return
-      if cmd == "mkcalc" and olddata != "":
-        self.queueMessage(('privmsg', source), 'I already have an entry for "%s"' % (entry,))
-        return
-      if cmd == "chcalc" and olddata == data:
-        self.queueMessage(('privmsg', source), '"%s" is already equal to that' % (entry,))
-        return
-      g_changeCount = g_changeCount + 1
-      changeEntry(entry, data, e.source())
-      self.queueMessage(('privmsg', target), "Change complete.")
-    elif cmd == "apropos" or cmd == "aproposv" or cmd == "aproposk":
-      if cmd == "apropos":
-        ki = 1
-        val = 1
-      elif cmd == "aproposv":
-        ki = 0
-        val = 1
-      elif cmd == "aproposk":
-        ki = 1
-        val = 0
-      else:
-        raise Error, "Fucked!"
-      returnval = apropos(entry, ki, val)
-      self.queueCompositeMessage(nick, returnval)
-      self.queueCompositeMore(nick, ('privmsg', target))
-    elif cmd == "help":
-      if target[0] == '#':
-        destination = ('notice', nick)
-      else:
-        destination = ('privmsg', nick)
-      self.queueMessage(destination, "Help for permission level " + permlev, True)
-      if adequatePermission('USER', permlev):
-        self.queueMessage(destination, "USER and higher: calc apropos aproposk aproposv status version", True)
-      if adequatePermission('PUBLIC', permlev):
-        self.queueMessage(destination, "PUBLIC and higher: calc tell_calc", True)
-      if adequatePermission('CHANGE', permlev):
-        self.queueMessage(destination, "CHANGE and higher: mkcalc rmcalc chcalc", True)
-      if adequatePermission('AUTHORIZE', permlev):
-        self.queueMessage(destination, "AUTHORIZE and higher:", True)
-      if adequatePermission('GOD', permlev):
-        self.queueMessage(destination, "GOD and higher: showhost addhost rmhost chperm match", True)
-      self.queueMessage(destination, "\"help command\" for detailed help", True)
-    elif cmd == "more":
-      self.queueCompositeMore(nick, ('privmsg', target))
-    elif cmd == "showhost":
-      if len(data) == 0:
-        targetnick = getMatch(e.source())
-        if targetnick == "":
-          self.queueMessage(('privmsg', source), 'Can\'t figure out who you are! Give me an explicit target.')
-          return
-      elif len(data) == 1:
-        targetnick = data[0]
-      else:
-        self.queueMessage(('privmsg', source), 'Usage: showhost [name]')
-        return
-      returnval = showhost(targetnick)
-      self.queueCompositeMessage(nick, returnval, "%s (%s): " % (targetnick, getNickPermissions(targetnick)))
-      self.queueCompositeMore(nick, ('privmsg', target))
-    elif cmd == "rmhost":
-      if len(data) != 2:
-        self.queueMessage(('privmsg', source), 'Usage: rmhost user mask')
-        return
-      if not rmhost(data[0], data[1], e.source()):
-        self.queueMessage(('privmsg', source), "Mask not found on that user")
-      else:
-        self.queueMessage(('privmsg', source), "Success")
-    elif cmd == "addhost":
-      if len(data) != 2:
-        self.queueMessage(('privmsg', source), 'Usage: addhost user mask')
-        return
-      if not addhost(data[0], data[1], e.source()):
-        self.queueMessage(('privmsg', source), "User already has that mask")
-      else:
-        self.queueMessage(('privmsg', source), "Success")
-    elif cmd == "chperm":
-      if len(data) != 2:
-        self.queueMessage(('privmsg', source), 'Usage: chperm user [IGNORE|USER|PUBLIC|CHANGE|AUTHORIZE|GOD]')
-        return
-      if not chperm(data[0], data[1], e.source()):
-        self.queueMessage(('privmsg', source), "Not a valid permission level")
-      else:
-        self.queueMessage(('privmsg', source), "Success")
-    elif cmd == "match":
-      print data
-      if len(data) != 1:
-        self.queueMessage(('privmsg', source), 'Usage: match hostmask')
-        return
-      matches = getMatch(data[0])
-      if matches == "":
-        self.queueMessage(('privmsg', source), "No matches")
-      else:
-        self.queueMessage(('privmsg', source), "Matches %s" % (matches,))
     else:
-      raise Error, "Shouldn't get here."
+      result = self.lookuptable[command].parseAndDispatch(arguments, context)
+    
+    print result
+    
+    for item in result:
+      item.dispatch(self, **context)
+    
+    return
 
 def main():
   import sys
@@ -804,6 +848,7 @@ def main():
       tok = x.split("::", 3)
       if tok == ["\n"]:
         break
+      tok[3] = tok[3].strip()   # this line hasn't been tested, so if it crashes here, fix it - it should remove whitespace so we don't pollute the DB with trailing \r\n pairs
       print "Adding %s: %s" % (tok[1], tok[3])
       changeEntry(tok[1], tok[3], tok[0] + " (factoid.db)")
       setCount(tok[1], int(tok[2]))
@@ -912,6 +957,9 @@ def main():
 if __name__ == "__main__":
   try:
     main()
+  except KeyboardInterrupt:
+    print "Interrupted, shutting down"
+    sys.exit(0)
   except Exception:
     exci = traceback.format_exc()
     print exci
