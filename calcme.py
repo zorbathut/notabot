@@ -560,7 +560,7 @@ class TestBot(SingleServerIRCBot):
     if matches == "":
       return [self.MsgTarget("No matches.")]
     else:
-      return [self.MsgTarget("Matches user %s.", matches)]
+      return [self.MsgTarget("Matches user %s." % matches)]
   
   def command_addhost(self, hostmask, user_host, user = None, **kwargs):
     if user == None:
