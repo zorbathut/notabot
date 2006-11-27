@@ -1,9 +1,7 @@
 ---- Main path
-- Notify Zorba on errors
 - *Really* shut up with "more blah blah blah"
 - Stop talking about op/voice and just say "send me a message" (for private-only stuff)
 - Be smarter about "tell bob . foo" (i.e. sometimes cull item 3)
-- Fix bug with "match" when there are multiple users with matching hostmasks
 - personal "whois"/"rmhost" should work with CHANGE
 - Fix error message for GOD permissions, shouldn't talk about +op
 - Keepalive pings?

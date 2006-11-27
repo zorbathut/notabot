@@ -752,7 +752,6 @@ class TestBot(SingleServerIRCBot):
     #print e.source()
     #print e.target()
     #print e.arguments()
-    
     if e.eventtype() != "pubmsg" and e.eventtype() != "privmsg":
       print "Unknown message type", e.eventtype() # TODO: /msg Zorba
     
@@ -839,7 +838,16 @@ def main():
     nickname = sys.argv[7]
   
     bot = TestBot(channel, nickname, server, port)
-    bot.start()
+    
+    try:
+      bot.start()
+    except KeyboardInterrupt:
+      raise
+    except Exception:
+      exci = traceback.extract_tb(sys.exc_info()[2])[-1]
+      print exci
+      bot.connection.privmsg("ZorbaTHut", "%s:%s (%s) - %s: %s" % (exci[0], exci[1], exci[2], g_lastuser, g_lastcommand))
+      raise
   elif sys.argv[1] == "load":
     if len(sys.argv) != 6:
       print "Missing filename"
