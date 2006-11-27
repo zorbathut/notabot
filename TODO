@@ -1,9 +1,6 @@
 ---- Main path
-- Be smarter about "tell bob . foo" (i.e. sometimes cull item 3)
 - personal "whois"/"rmhost" should work with CHANGE
 - Keepalive pings?
-- If you send it garbage in msg, it should trigger confused
-- "tell" should check to see if the user is in the channel, and if not, only really send if it's in msg
 - Detailed help on syntax fuckup in /msg?
 - rmhost for own user (and, obviously, whois for own user)
 - rmuser

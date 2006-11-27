@@ -504,10 +504,20 @@ class TestBot(SingleServerIRCBot):
       return [self.MsgTarget("\"%s\" does not exist." % key)]
     return [self.MsgTarget("\"%s\" was last edited by %s." % (key, getVersionedEntry(key, getLastVersion(key))[1]))]
   
-  def command_tell(self, user, key, target, user_nick, **kwargs):
+  def command_tell(self, user, key, target, user_nick, channel, **kwargs):
+    if target[0] == '#' and not channel.has_user(user):
+      return []   # We pretend nothing happened if the user doesn't exist in the channel and it wasn't in /msg
+    
     global g_queryCount
     g_queryCount = g_queryCount + 1
     data = getEntry(key)
+    realkey = key
+    if data == "":
+      splice = key.split(' ', 1)
+      if len(splice) > 1:
+        data = getEntry(splice[1])
+        realkey = splice[1]
+    
     incrementCount(key)
     
     if target[0] == '#':
@@ -520,7 +530,7 @@ class TestBot(SingleServerIRCBot):
     elif data == "" and target[0] != '#':
       return [ResponseClass("No entry for \"%s\"." % key)]
     else:
-      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (key, data)), ResponseClass("Calc %s sent to %s" % (key, user))]
+      return [self.MsgOther(user, "%s wanted me to tell you:" % user_nick), self.MsgOther(user, "%s = %s" % (realkey, data)), ResponseClass("Calc %s sent to %s" % (realkey, user))]
   
   def command_mkcalc(self, key, value, user_host, user_id, **kwargs):
     global g_changeCount
@@ -789,7 +799,7 @@ class TestBot(SingleServerIRCBot):
     if permission == "IGNORE":
       return
       
-    context = { "target": target, "user_host": user_host, "user_nick": user_nick, "permission": permission, "user_id": user_id, "lookuptable": self.lookuptable }
+    context = { "target": target, "user_host": user_host, "user_nick": user_nick, "permission": permission, "user_id": user_id, "lookuptable": self.lookuptable, "channel": self.channels[self.channel] }
     
     if not self.lookuptable.has_key(command):
       result = self.command_confused(**context)
@@ -806,7 +816,6 @@ class TestBot(SingleServerIRCBot):
         autherror = self.command_msgnotify
       else:
         adequateperms = adequatePermission(self.lookuptable[command].permission, permission)
-        adequateperms = False
         autherror = self.command_noauth
       
       if not silent:
