@@ -752,7 +752,9 @@ class TestBot(SingleServerIRCBot):
     #print e.source()
     #print e.target()
     #print e.arguments()
+    
     if e.eventtype() != "pubmsg" and e.eventtype() != "privmsg":
+      connection.privmsg("ZorbaTHut", "Unknown message type: %s" % (e.eventtype()))
       print "Unknown message type", e.eventtype() # TODO: /msg Zorba
     
     # Remove control characters
