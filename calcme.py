@@ -317,22 +317,22 @@ class TestBot(SingleServerIRCBot):
     def setConfused(self, confused):
       self.confused = confused
     
-    def parseAndDispatch(self, arguments, context):
+    def parsable(self, arguments):
+      return self.regex.match(arguments) != None
+    
+    def dispatch(self, arguments, context):
       result = self.regex.match(arguments)
       
       if result == None:
-        if self.confused_help:
-          return self.confused(**context)
-        else:
-          return []
-      else:
-        print result.groupdict()
-        for key,value in result.groupdict().iteritems():
-          if key in context:
-            raise Error
-          elif value != None:
-            context[key] = value
-        return self.function(**context)
+        raise "Fucked"
+      
+      print result.groupdict()
+      for key,value in result.groupdict().iteritems():
+        if key in context:
+          raise Error
+        elif value != None:
+          context[key] = value
+      return self.function(**context)
     
   def __init__(self, channel, nickname, server, port=6667):
     self.lastnick = nickname
@@ -423,8 +423,11 @@ class TestBot(SingleServerIRCBot):
   def command_msgnotify(self, **kwargs):
     return [self.NotifySender("Sorry, you don't have permission to do that publicly. Op/voice yourself or send me a message.")]
   
-  def command_noauth(self, **kwargs):
-    return [self.NotifySender("You don't have the permissions needed to do that. If you should, fix your hostmask, ask an op to update your host, or op yourself.")]
+  def command_noauth(self, target, **kwargs):
+    if target[0] == '#':
+      return [self.NotifySender("You don't have the permissions needed to do that.")]
+    else:
+      return [self.MsgTarget("You don't have the permissions needed to do that.")]
   
   def command_calc(self, key, **kwargs):
     global g_queryCount
@@ -776,8 +779,7 @@ class TestBot(SingleServerIRCBot):
     else:
       target = e.target()
     
-    if not self.lookuptable.has_key(command) and target != "privmsg":
-      #print "No command for", command
+    if not self.lookuptable.has_key(command) and target[0] == "#":
       return
     
     permission, user_id = getPermissions(user_host, self.channels[self.channel])
@@ -791,14 +793,36 @@ class TestBot(SingleServerIRCBot):
     
     if not self.lookuptable.has_key(command):
       result = self.command_confused(**context)
-    elif not adequatePermission(self.lookuptable[command].permission, permission):
-      result = self.command_noauth(**context)
-    elif target[0] == "#" and permission == "USER":
-      result = self.command_msgnotify(**context)  # USER may never do things in public
     elif target[0] == "#" and self.lookuptable[command].private_only:
       return
     else:
-      result = self.lookuptable[command].parseAndDispatch(arguments, context)
+      silent = not self.lookuptable[command].confused_help
+      if target[0] != "#":
+        silent = False
+      parseable = self.lookuptable[command].parsable(arguments)
+      
+      if target[0] == "#" and permission == "USER" and adequatePermission(self.lookuptable[command].permission, permission):  # If they would have permission otherwise, but they're a user and it's in public . . .
+        adequateperms = False
+        autherror = self.command_msgnotify
+      else:
+        adequateperms = adequatePermission(self.lookuptable[command].permission, permission)
+        adequateperms = False
+        autherror = self.command_noauth
+      
+      if not silent:
+        if not adequateperms:
+          result = autherror(**context)
+        elif not parseable:
+          result = self.command_confused(**context)
+        else:
+          result = self.lookuptable[command].dispatch(arguments, context)
+      else:
+        if not parseable:
+          result = []
+        elif not adequateperms:
+          result = autherror(**context)
+        else:
+          result = self.lookuptable[command].dispatch(arguments, context)
     
     print result
     

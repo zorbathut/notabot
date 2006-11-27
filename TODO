@@ -1,9 +1,6 @@
 ---- Main path
-- *Really* shut up with "more blah blah blah"
-- Stop talking about op/voice and just say "send me a message" (for private-only stuff)
 - Be smarter about "tell bob . foo" (i.e. sometimes cull item 3)
 - personal "whois"/"rmhost" should work with CHANGE
-- Fix error message for GOD permissions, shouldn't talk about +op
 - Keepalive pings?
 - If you send it garbage in msg, it should trigger confused
 - "tell" should check to see if the user is in the channel, and if not, only really send if it's in msg
@@ -22,3 +19,31 @@
 ---- Is this ever needed?
 - chversion?
 - %%%BRAG%%%
+
+
+
+-- Thoughts
+
+If the user is IGNORE, we ignore them.
+
+Next, if the command doesn't exist, we get confused.
+
+
+verbal 1, parse 1, permissions 1: work
+verbal 1, parse 0, permissions 1: confused
+verbal 1, parse 1, permissions 0: permission
+verbal 1, parse 0, permissions 0: permission
+
+verbal 0, parse 1, permissions 1: work
+verbal 0, parse 0, permissions 1: silent
+verbal 0, parse 1, permissions 0: permission
+verbal 0, parse 0, permissions 0: silent
+
+(
+Next we try parsing. If parsing fails, we either return confused or silently fail.
+
+Next we check permissions. If permissions fail, we return an appropriate error.
+(This includes the PUBLIC USER check.)
+) this is wrong
+
+Finally we actually dispatch.
