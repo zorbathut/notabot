@@ -298,13 +298,14 @@ def toki(instring):
 
 class TestBot(SingleServerIRCBot):
   class ParseModule:
-    def __init__(self, permission, pattern, function, visible = True, confused_help = True, private_only = False):
+    def __init__(self, permission, pattern, function, visible = True, confused_help = True, private_only = False, parsechecker = None):
       self.permission = permission
       self.pattern = pattern
       self.function = function
       self.confused_help = confused_help
       self.visible = visible
       self.private_only = private_only
+      self.parsechecker = parsechecker
       
       # This entire thing is hilariously grim.
       processedpattern = pattern.replace(" ", "\s*").replace("[", "").replace("]", "?").replace("<key>", "((?P<key>[^=]{1,255}?)\s*)").replace("<text>", "((?P<text>.+?)\s*)").replace("<command>", "((?P<command>\w+?)\s*)").replace("<version>", "((?P<version>\d{1,10})(\s+|$))").replace("<user>", "((?P<user>[^\s]{1,255})(\s+|$))").replace("<value>", "((?P<value>.*)(\s+|$))").replace("<hostmask>", "((?P<hostmask>[^\s]{1,255})(\s+|$))").replace("<level>", "((?P<level>[\w]+)(\s+|$))")
@@ -317,8 +318,21 @@ class TestBot(SingleServerIRCBot):
     def setConfused(self, confused):
       self.confused = confused
     
-    def parsable(self, arguments):
-      return self.regex.match(arguments) != None
+    def parsable(self, arguments, context):
+      match = self.regex.match(arguments)
+      if match == None:
+        return False
+      if self.parsechecker == None:
+        return True
+      
+      # dupe code with dispatch
+      for key,value in match.groupdict().iteritems():
+        if key in context:
+          raise Error
+        elif value != None:
+          context[key] = value
+      
+      return self.parsechecker(**context)
     
     def dispatch(self, arguments, context):
       result = self.regex.match(arguments)
@@ -326,12 +340,13 @@ class TestBot(SingleServerIRCBot):
       if result == None:
         raise "Fucked"
       
-      print result.groupdict()
+      # dupe code with parsable
       for key,value in result.groupdict().iteritems():
         if key in context:
           raise Error
         elif value != None:
           context[key] = value
+      
       return self.function(**context)
     
   def __init__(self, channel, nickname, server, port=6667):
@@ -363,7 +378,7 @@ class TestBot(SingleServerIRCBot):
         "version": self.ParseModule("USER", "<version> <key>", self.command_version, confused_help = False),
         "owncalc": self.ParseModule("USER", "<key>", self.command_owncalc),
         
-        "tell": self.ParseModule("PUBLIC", "<user> <key>", self.command_tell, confused_help = False),
+        "tell": self.ParseModule("PUBLIC", "<user> <key>", self.command_tell, parsechecker = self.command_tell_parsechecker, confused_help = False),
         
         "mkcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_mkcalc),
         "rmcalc": self.ParseModule("CHANGE", "<key>", self.command_rmcalc),
@@ -503,6 +518,11 @@ class TestBot(SingleServerIRCBot):
     if data == "":
       return [self.MsgTarget("\"%s\" does not exist." % key)]
     return [self.MsgTarget("\"%s\" was last edited by %s." % (key, getVersionedEntry(key, getLastVersion(key))[1]))]
+  
+  def command_tell_parsechecker(self, target, user, channel, **kwargs):
+    if target[0] == '#' and not channel.has_user(user):
+      return False
+    return True
   
   def command_tell(self, user, key, target, user_nick, channel, **kwargs):
     if target[0] == '#' and not channel.has_user(user):
@@ -809,7 +829,7 @@ class TestBot(SingleServerIRCBot):
       silent = not self.lookuptable[command].confused_help
       if target[0] != "#":
         silent = False
-      parseable = self.lookuptable[command].parsable(arguments)
+      parseable = self.lookuptable[command].parsable(arguments, context)
       
       if target[0] == "#" and permission == "USER" and adequatePermission(self.lookuptable[command].permission, permission):  # If they would have permission otherwise, but they're a user and it's in public . . .
         adequateperms = False
