@@ -27,6 +27,7 @@ import time as time
 import sys as sys
 import traceback as traceback
 import re as re
+import copy
 
 g_queryCount = 0
 g_changeCount = 0
@@ -325,6 +326,7 @@ class TestBot(SingleServerIRCBot):
       if self.parsechecker == None:
         return True
       
+      context = copy.copy(context)
       # dupe code with dispatch
       for key,value in match.groupdict().iteritems():
         if key in context:
@@ -340,6 +342,7 @@ class TestBot(SingleServerIRCBot):
       if result == None:
         raise "Fucked"
       
+      context = copy.copy(context)
       # dupe code with parsable
       for key,value in result.groupdict().iteritems():
         if key in context:
