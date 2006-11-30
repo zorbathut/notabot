@@ -1,4 +1,5 @@
 ---- Main path
+- Add useful help descriptions
 - personal "whois"/"rmhost" should work with CHANGE
 - Keepalive pings?
 - Detailed help on syntax fuckup in /msg?

@@ -376,7 +376,7 @@ class TestBot(SingleServerIRCBot):
         "aproposv": self.ParseModule("USER", "<text>", self.command_aproposv),
         "apropos2": self.ParseModule("USER", "[<text>]", self.command_apropos2, visible = False), # error only
         "status": self.ParseModule("USER", "[<key>]", self.command_status, confused_help = False),
-        "help": self.ParseModule("USER", "[<command>]", self.command_help, confused_help = False, private_only = True),
+        "help": self.ParseModule("USER", "[<command>]", self.command_help, confused_help = False),
         "more": self.ParseModule("USER", "", self.command_more, confused_help = False),
         "version": self.ParseModule("USER", "<version> <key>", self.command_version, confused_help = False),
         "owncalc": self.ParseModule("USER", "<key>", self.command_owncalc),
@@ -480,7 +480,10 @@ class TestBot(SingleServerIRCBot):
       else:
         return [self.MsgTarget("\"%s\" has been queried %s times and its last version is %s." % (key, getCount(key), ver))]
   
-  def command_help(self, lookuptable, permission, command = None, **kwargs):
+  def command_help(self, lookuptable, permission, target, command = None, **kwargs):
+    if target[0] == '#':
+      return [self.NotifySender("Help can only be used in /msg.")]
+    
     if command == None:
       options = "Available commands for level %s:" % permission
       permissionstraverse = [ "USER", "PUBLIC", "CHANGE", "GOD" ]
