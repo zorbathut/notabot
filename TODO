@@ -1,5 +1,4 @@
 ---- Main path
-- "has been queried 1 times" is crappy grammar
 - Calc "load" to track recent popularity
 - Prevent calc floods
 - _ in apropos counts as a wildcard thanks to sql

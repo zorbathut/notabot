@@ -475,10 +475,16 @@ class TestBot(SingleServerIRCBot):
       return [self.MsgTarget("I have %s entries in my database. There have been %s changes and %s queries since %s." % (getCalcCount(), g_changeCount, g_queryCount, g_startDate))]
     else:
       ver = getLastVersion(key)
-      if ver == None:
-        return [self.MsgTarget("\"%s\" has been queried %s times and has no version history." % (key, getCount(key)))]
+      count = getCount(key)
+      if count != 1:
+        plural = "s"
       else:
-        return [self.MsgTarget("\"%s\" has been queried %s times and its last version is %s." % (key, getCount(key), ver))]
+        plural = ""
+        
+      if ver == None:
+        return [self.MsgTarget("\"%s\" has been queried %s time%s and has no version history." % (key, count, plural))]
+      else:
+        return [self.MsgTarget("\"%s\" has been queried %s time%s and its last version is %s." % (key, count, plural, ver))]
   
   def command_help(self, lookuptable, permission, target, command = None, **kwargs):
     if target[0] == '#':
