@@ -13,6 +13,8 @@ CREATE TABLE `current` (
   `name` varchar(255) NOT NULL,
   `value` text NOT NULL,
   `count` int NOT NULL default '0',
+  `load` float NOT NULL default '0',
+  `last` timestamp NOT NULL default CURRENT_TIMESTAMP,
   PRIMARY KEY  (`name`)
 );
 

@@ -405,11 +405,12 @@ class TestBot(SingleServerIRCBot):
       bot.queueMessage(('notice', user_nick), self.text)
   
   class MsgTarget:
-    def __init__(self, text):
+    def __init__(self, text, cull = False):
       self.text = text
+      self.cull = cull
     
     def dispatch(self, bot, target, **kwargs):
-      bot.queueMessage(('privmsg', target), self.text)
+      bot.queueMessage(('privmsg', target), self.text, cull = self.cull)
   
   class MsgOther:
     def __init__(self, person, text):
@@ -453,9 +454,9 @@ class TestBot(SingleServerIRCBot):
     data = getEntry(key)
     incrementCount(key)
     if data == "":
-      return [self.MsgTarget("No entry for \"%s\"" % key)]
+      return [self.MsgTarget("No entry for \"%s\"" % key, cull = True)]
     else:
-      return [self.MsgTarget("%s = %s" % (key, data))]
+      return [self.MsgTarget("%s = %s" % (key, data), cull = True)]
   
   def command_apropos(self, text, **kwargs):
     return [self.CompositeTargetStart(apropos(text, key=True, value=True), "found: ")]
@@ -637,7 +638,7 @@ class TestBot(SingleServerIRCBot):
   
   def updateLastsaid(self):
     #print self.lastsaid
-    while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 15:
+    while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 10:
       self.lastsaid = self.lastsaid[1:]
     #print self.lastsaid
     

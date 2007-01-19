@@ -1,12 +1,9 @@
 ---- Main path
-- Calc "load" to track recent popularity
-- Prevent calc floods
 - _ in apropos counts as a wildcard thanks to sql
 - Add useful help descriptions
 - personal "whois"/"rmhost" should work with CHANGE
 - Keepalive pings?
 - Detailed help on syntax fuckup in /msg?
-- rmhost for own user (and, obviously, whois for own user)
 - rmuser
 - config file
   - change ticker?
@@ -20,6 +17,7 @@
 ---- Is this ever needed?
 - chversion?
 - %%%BRAG%%%
+- Calc "load" to track recent popularity
 
 
 
