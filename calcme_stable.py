@@ -299,12 +299,13 @@ def toki(instring):
 
 class TestBot(SingleServerIRCBot):
   class ParseModule:
-    def __init__(self, permission, pattern, function, visible = True, confused_help = True, private_only = False, parsechecker = None):
+    def __init__(self, permission, pattern, function, helptext = None, visible = True, confused_help = True, private_only = False, parsechecker = None):
       self.permission = permission
       self.pattern = pattern
       self.function = function
       self.confused_help = confused_help
       self.visible = visible
+      self.helptext = helptext;
       self.private_only = private_only
       self.parsechecker = parsechecker
       
@@ -370,28 +371,28 @@ class TestBot(SingleServerIRCBot):
     self.intendedNickname = nickname
     
     self.lookuptable = {
-        "calc": self.ParseModule("USER", "<key>", self.command_calc),
-        "apropos": self.ParseModule("USER", "<text>", self.command_apropos),
-        "aproposk": self.ParseModule("USER", "<text>", self.command_aproposk),
-        "aproposv": self.ParseModule("USER", "<text>", self.command_aproposv),
+        "calc": self.ParseModule("USER", "<key>", self.command_calc, helptext = "Prints out the requested calc message."),
+        "apropos": self.ParseModule("USER", "<text>", self.command_apropos, helptext = "Searches both calc keys and values for the given text."),
+        "aproposk": self.ParseModule("USER", "<text>", self.command_aproposk, helptext = "Searches calc keys for the given text."),
+        "aproposv": self.ParseModule("USER", "<text>", self.command_aproposv, helptext = "Searches calc values for the given text."),
         "apropos2": self.ParseModule("USER", "[<text>]", self.command_apropos2, visible = False), # error only
-        "status": self.ParseModule("USER", "[<key>]", self.command_status, confused_help = False),
-        "help": self.ParseModule("USER", "[<command>]", self.command_help, confused_help = False),
-        "more": self.ParseModule("USER", "", self.command_more, confused_help = False),
-        "version": self.ParseModule("USER", "<version> <key>", self.command_version, confused_help = False),
-        "owncalc": self.ParseModule("USER", "<key>", self.command_owncalc),
+        "status": self.ParseModule("USER", "[<key>]", self.command_status, helptext = "Shows bot status with no parameter, or calc information with a calc key.", confused_help = False),
+        "help": self.ParseModule("USER", "[<command>]", self.command_help, helptext = "Irrevocably destroys the universe. Never use this.", confused_help = False),
+        "more": self.ParseModule("USER", "", self.command_more, helptext = "Gives more output from commands that can generate more than a page.", confused_help = False),
+        "version": self.ParseModule("USER", "<version> <key>", self.command_version, helptext = "Shows old versions of calcs.", confused_help = False),
+        "owncalc": self.ParseModule("USER", "<key>", self.command_owncalc, helptext = "Tells you who last changed a calc."),
         
-        "tell": self.ParseModule("PUBLIC", "<user> <key>", self.command_tell, parsechecker = self.command_tell_parsechecker, confused_help = False),
+        "tell": self.ParseModule("PUBLIC", "<user> <key>", self.command_tell, helptext = "Sends a calc directly to a user in private msg.", parsechecker = self.command_tell_parsechecker, confused_help = False),
         
-        "mkcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_mkcalc),
-        "rmcalc": self.ParseModule("CHANGE", "<key>", self.command_rmcalc),
-        "chcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_chcalc),
+        "mkcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_mkcalc, helptext = "Creates a new calc."),
+        "rmcalc": self.ParseModule("CHANGE", "<key>", self.command_rmcalc, helptext = "Removes an existing calc."),
+        "chcalc": self.ParseModule("CHANGE", "<key> = <value>", self.command_chcalc, helptext = "Changes an existing calc."),
         
-        "whois": self.ParseModule("GOD", "[<user>]", self.command_whois, private_only = True),
-        "match": self.ParseModule("GOD", "<hostmask>", self.command_match, private_only = True),
-        "addhost": self.ParseModule("GOD", "[<user>] <hostmask>", self.command_addhost, private_only = True),
-        "rmhost": self.ParseModule("GOD", "[<user>] <hostmask>", self.command_rmhost, private_only = True),
-        "chperm": self.ParseModule("GOD", "<user> <level>", self.command_chperm, private_only = True),
+        "whois": self.ParseModule("GOD", "[<user>]", self.command_whois, helptext = "Shows hostmask info for a user.", private_only = True),
+        "match": self.ParseModule("GOD", "<hostmask>", self.command_match, helptext = "Matches a given hostmask to a user ID.", private_only = True),
+        "addhost": self.ParseModule("GOD", "<user> <hostmask>", self.command_addhost, helptext = "Adds a host for a user.", private_only = True),
+        "rmhost": self.ParseModule("GOD", "[<user>] <hostmask>", self.command_rmhost, helptext = "Removes a host from a user (defaults to removing hosts from yourself.)", private_only = True),
+        "chperm": self.ParseModule("GOD", "<user> <level>", self.command_chperm, helptext = "Changes permission level for someone. IGNORE = bot does not pay attention to the user. USER = normal private-only access. PUBLIC = can calc in public and send tells. CHANGE = can change, add, or remove calcs. AUTHORIZE = same as CHANGE, kind of obsolete. GOD = can change permission levels and add hostmasks.", private_only = True),
       }
     
     for value in self.lookuptable.itervalues():
@@ -405,11 +406,12 @@ class TestBot(SingleServerIRCBot):
       bot.queueMessage(('notice', user_nick), self.text)
   
   class MsgTarget:
-    def __init__(self, text):
+    def __init__(self, text, cull = False):
       self.text = text
+      self.cull = cull
     
     def dispatch(self, bot, target, **kwargs):
-      bot.queueMessage(('privmsg', target), self.text)
+      bot.queueMessage(('privmsg', target), self.text, cull = self.cull)
   
   class MsgOther:
     def __init__(self, person, text):
@@ -453,9 +455,9 @@ class TestBot(SingleServerIRCBot):
     data = getEntry(key)
     incrementCount(key)
     if data == "":
-      return [self.MsgTarget("No entry for \"%s\"" % key)]
+      return [self.MsgTarget("No entry for \"%s\"" % key, cull = True)]
     else:
-      return [self.MsgTarget("%s = %s" % (key, data))]
+      return [self.MsgTarget("%s = %s" % (key, data), cull = True)]
   
   def command_apropos(self, text, **kwargs):
     return [self.CompositeTargetStart(apropos(text, key=True, value=True), "found: ")]
@@ -475,10 +477,16 @@ class TestBot(SingleServerIRCBot):
       return [self.MsgTarget("I have %s entries in my database. There have been %s changes and %s queries since %s." % (getCalcCount(), g_changeCount, g_queryCount, g_startDate))]
     else:
       ver = getLastVersion(key)
-      if ver == None:
-        return [self.MsgTarget("\"%s\" has been queried %s times and has no version history." % (key, getCount(key)))]
+      count = getCount(key)
+      if count != 1:
+        plural = "s"
       else:
-        return [self.MsgTarget("\"%s\" has been queried %s times and its last version is %s." % (key, getCount(key), ver))]
+        plural = ""
+        
+      if ver == None:
+        return [self.MsgTarget("\"%s\" has been queried %s time%s and has no version history." % (key, count, plural))]
+      else:
+        return [self.MsgTarget("\"%s\" has been queried %s time%s and its last version is %s." % (key, count, plural, ver))]
   
   def command_help(self, lookuptable, permission, target, command = None, **kwargs):
     if target[0] == '#':
@@ -496,7 +504,7 @@ class TestBot(SingleServerIRCBot):
     else:
       if not command in lookuptable or not lookuptable[command].visible:
         return [self.MsgTarget("\"%s\" is not a valid command." % command)]
-      return [self.MsgTarget("Usage: %s %s" % (command, lookuptable[command].pattern))]
+      return [self.MsgTarget("%s Usage: %s %s" % (lookuptable[command].helptext, command, lookuptable[command].pattern))]
   
   def command_more(self, **kwargs):
     return [self.CompositeTargetMore()]
@@ -631,7 +639,7 @@ class TestBot(SingleServerIRCBot):
   
   def updateLastsaid(self):
     #print self.lastsaid
-    while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 15:
+    while len(self.lastsaid) and self.lastsaid[0][0] < itime() - 10:
       self.lastsaid = self.lastsaid[1:]
     #print self.lastsaid
     
