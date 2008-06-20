@@ -720,8 +720,6 @@ class TestBot(SingleServerIRCBot):
       self.connection.nick(self.intendedNickname)
 
   def recheckIdle(self):
-    print self.lastcommand
-    print itime() - 15 * 60
     if self.lastcommand < itime() - 15 * 60:
       print "disconnecting due to idle-timeout"
       self.connection.disconnect("If this happens, please let ZorbaTHut know.")
@@ -761,13 +759,32 @@ class TestBot(SingleServerIRCBot):
     c.join(self.channel, self.channelkey)
   
   def on_join(self, c, e):
+    print "join"
     self.antiidle()
 
   def on_part(self, c, e):
+    print "part"
     self.antiidle()
 
   def on_quit(self, c, e):
+    print "quit"
     self.antiidle()    
+
+  def on_mode(self, c, e):
+    print "mode"
+    self.antiidle()    
+
+  def on_ping(self, c, e):
+    print "ping"
+    self.antiidle()    
+
+  def on_privnotice(self, c, e):
+    print "privnotice"
+    self.antiidle()
+
+  def on_pubnotice(self, c, e):
+    print "pubnotice"
+    self.antiidle()
 
   def on_disconnect(self, c, e):
     print "Disconnected, dying"
@@ -951,6 +968,9 @@ def main():
       print exci
       bot.connection.privmsg("ZorbaTHut", "%s:%s (%s) - %s: %s" % (exci[0], exci[1], exci[2], g_lastuser, g_lastcommand))
       raise
+  #################
+  # Pretty much all the code beneath this line is dead - it was designed to be run once, and I ran it, and it worked, and now it's not being run again. May take some tweaking to make it work again - it's mostly being left in in case it's ever needed again.
+  #################
   elif sys.argv[1] == "load":
     if len(sys.argv) != 6:
       print "Missing filename"
