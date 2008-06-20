@@ -715,6 +715,15 @@ class TestBot(SingleServerIRCBot):
     if self.connection.get_nickname() != self.intendedNickname:
       self.connection.nick(self.intendedNickname)
 
+  def recheckIdle(self):
+    print self.lastcommand
+    print itime() - 15 * 60
+    if self.lastcommand < itime() - 15 * 60:
+      print "disconnecting due to idle-timeout"
+      self.connection.disconnect("If this happens, please let ZorbaTHut know.")
+    else:
+      self.ircobj.execute_delayed(15, self.recheckIdle, ())
+
   def on_nicknameinuse(self, c, e):
     if len(self.channels) == 0:
       if self.lastnick == "CalcMe":
@@ -732,19 +741,39 @@ class TestBot(SingleServerIRCBot):
     c.join(self.channel, self.channelkey)
     if c.get_nickname() != self.intendedNickname:
       self.ircobj.execute_delayed(5, self.recheckNickname, ())
+    self.lastcommand = itime()
+    self.ircobj.execute_delayed(15, self.recheckIdle, ())
 
   def on_privmsg(self, c, e):
+    self.antiidle()
     self.do_command(e)
 
   def on_pubmsg(self, c, e):
+    self.antiidle()
     self.do_command(e)
     
   def on_kick(self, c, e):
+    self.antiidle()
     c.join(self.channel, self.channelkey)
-    
+  
+  def on_join(self, c, e):
+    self.antiidle()
+
+  def on_part(self, c, e):
+    self.antiidle()
+
+  def on_quit(self, c, e):
+    self.antiidle()    
+
   def on_disconnect(self, c, e):
     print "Disconnected, dying"
+    self.ircobj.execute_delayed(15, self.die, ())
+
+  def die(self):
     sys.exit(1)
+
+  def antiidle(self):
+    self.lastcommand = itime()
     
   def on_bannedfromchan(self, c, e):
     print "Banned, sleeping"
