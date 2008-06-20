@@ -36,6 +36,7 @@ g_startDate = 0
 g_username = ""
 g_passwd = ""
 g_dbhost = ""
+g_dbname = ""
 
 g_lastuser = ""
 g_lastcommand = ""
@@ -44,8 +45,8 @@ def itime():
   return int(time.time())
 
 def initDb():
-  global db, g_username, g_passwd, g_dhost
-  db = MySQLdb.connect(host=g_dbhost,user=g_username,passwd=g_passwd,db="calcme")
+  global db, g_username, g_passwd, g_dbhost, g_dbname
+  db = MySQLdb.connect(host=g_dbhost,user=g_username,passwd=g_passwd,db=g_dbname)
   print db
 
 def safeExecute(cursor, string, params):
@@ -125,7 +126,10 @@ def getEntry(entry):
 def getVersionedEntry(entry, version):
   global db
   c=db.cursor()
-  c, rv = safeExecute(c, 'SELECT value, username, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
+  if version[0] == '-':
+    c, rv = safeExecute(c, 'SELECT value, username, modifier, changed FROM versions WHERE name = %s AND version = (SELECT max(version)+%s+1 FROM versions WHERE name = %s)', (entry, version, entry))
+  else:
+    c, rv = safeExecute(c, 'SELECT value, username, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
   if rv == 0:
     return None, None, None, None
   else:
@@ -310,7 +314,7 @@ class TestBot(SingleServerIRCBot):
       self.parsechecker = parsechecker
       
       # This entire thing is hilariously grim.
-      processedpattern = pattern.replace(" ", "\s*").replace("[", "").replace("]", "?").replace("<key>", "((?P<key>[^=]{1,255}?)\s*)").replace("<text>", "((?P<text>.+?)\s*)").replace("<command>", "((?P<command>\w+?)\s*)").replace("<version>", "((?P<version>\d{1,10})(\s+|$))").replace("<user>", "((?P<user>[^\s]{1,255})(\s+|$))").replace("<value>", "((?P<value>.*)(\s+|$))").replace("<hostmask>", "((?P<hostmask>[^\s]{1,255})(\s+|$))").replace("<level>", "((?P<level>[\w]+)(\s+|$))")
+      processedpattern = pattern.replace(" ", "\s*").replace("[", "").replace("]", "?").replace("<key>", "((?P<key>[^=]{1,255}?)\s*)").replace("<text>", "((?P<text>.+?)\s*)").replace("<command>", "((?P<command>\w+?)\s*)").replace("<version>", "((?P<version>-?\d{1,10})(\s+|$))").replace("<user>", "((?P<user>[^\s]{1,255})(\s+|$))").replace("<value>", "((?P<value>.*)(\s+|$))").replace("<hostmask>", "((?P<hostmask>[^\s]{1,255})(\s+|$))").replace("<level>", "((?P<level>[\w]+)(\s+|$))")
       processedpattern = "^\s*" + processedpattern + "$"
       print pattern
       print processedpattern
@@ -878,22 +882,23 @@ def main():
   import sys
   print len(sys.argv)
   if len(sys.argv) == 1:
-    print "Usages: testbot run dbhost dbusername dbpassword <server[:port]> <channel> <nickname>"
-    print "    testbot load dbhost dbusername dbpassword <filename>"
-    print "    testbot replay dbhost dbusername dbpassword <filename>"
+    print "Usages: testbot run dbhost dbname dbusername dbpassword <server[:port]> <channel> <nickname>"
+    print "    testbot load dbhost dbname dbusername dbpassword <filename>"
+    print "    testbot replay dbhost dbname dbusername dbpassword <filename>"
     sys.exit(1)
     
-  global g_username, g_passwd, g_dbhost
+  global g_username, g_passwd, g_dbhost, g_dbname
   g_dbhost = sys.argv[2]
-  g_username = sys.argv[3]
-  g_passwd = sys.argv[4]
+  g_dbname = sys.argv[3]
+  g_username = sys.argv[4]
+  g_passwd = sys.argv[5]
   initDb()
   
   if sys.argv[1] == "run":
-    if len(sys.argv) != 8:
+    if len(sys.argv) != 9:
       sys.exit(1)
   
-    s = string.split(sys.argv[5], ":", 1)
+    s = string.split(sys.argv[6], ":", 1)
     server = s[0]
     if len(s) == 2:
       try:
@@ -903,8 +908,8 @@ def main():
         sys.exit(1)
     else:
       port = 6667
-    channel = sys.argv[6]
-    nickname = sys.argv[7]
+    channel = sys.argv[7]
+    nickname = sys.argv[8]
   
     bot = TestBot(channel, nickname, server, port)
     
