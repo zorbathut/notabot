@@ -126,7 +126,9 @@ def getEntry(entry):
 def getVersionedEntry(entry, version):
   global db
   c=db.cursor()
-  if version[0] == '-':
+
+  version = str(version)
+  if str(version[0]) == '-':
     c, rv = safeExecute(c, 'SELECT value, username, modifier, changed FROM versions WHERE name = %s AND version = (SELECT max(version)+%s+1 FROM versions WHERE name = %s)', (entry, version, entry))
   else:
     c, rv = safeExecute(c, 'SELECT value, username, modifier, changed FROM versions WHERE name = %s AND version = %s', (entry, version))
